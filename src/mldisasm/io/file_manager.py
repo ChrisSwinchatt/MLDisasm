@@ -44,50 +44,83 @@ class FileManager:
         with self._open_config(name, *args, **kwargs) as file:
             return json.load(file)
 
+    def open_log(self, *args, **kwargs):
+        '''
+        :param args: Extra arguments for open().
+        :param kwargs: Keyword arguments for open().
+        '''
+        return open(self._qualify_log(), *args, **kwargs)
+
     def open_model(self, name, *args, **kwargs):
         '''
         Open model.
         :param name: The model name.
+        :param args: Extra arguments for open().
+        :param kwargs: Keyword arguments for open().
         :returns: An open handle to the model file.
         '''
-        return open(self._qualify_model(name), 'rb', *args, **kwargs)
+        return open(self._qualify_model(name), FileManager._model_mode, *args, **kwargs)
 
     def open_training(self, name, *args, **kwargs):
         '''
         Open training set file.
         :param name: The name of the training set.
+        :param args: Extra arguments for TrainingSet.__init__().
+        :param kwargs: Keyword arguments for TrainingSet.__init__().
         :returns: An open handle to the training set file.
         '''
         return TrainingSet(self._qualify_training(name), *args, **kwargs)
 
-    def save_model(self, model, name):
+    def save_model(self, model, name, *args, **kwargs):
         '''
         Save a model.
         :param model: The model to save.
+        :param args: Extra arguments for open().
+        :param kwargs: Keyword arguments for open().
         '''
-        with open(self._qualify_model(name), 'rb') as file:
+        with open(self._qualify_model(name), FileManager._model_mode, *args, **kwargs) as file:
             pickle.dump(model, file)
 
     def _open_config(self, name, *args, **kwargs):
         '''
         Open configuration file.
+        :param args: Extra arguments for open().
+        :param kwargs: Keyword arguments for open().
         '''
         return open(self._qualify_config(name), *args, **kwargs)
 
     def _qualify_training(self, name):
         '''
-        Qualify a training set filename.
+        Get the qualified filename of a training set.
         '''
-        return os.path.join(self._data_dir, name, 'training.csv')
+        return self._qualify(name, FileManager._training_name)
 
     def _qualify_model(self, name):
         '''
-        Qualify a model filename.
+        Get the qualified filename of a model.
         '''
-        return os.path.join(self._data_dir, name, 'model.pkl')
+        return self._qualify(name, FileManager._model_name)
 
     def _qualify_config(self, name):
         '''
-        Qualify a configuration file name.
+        Get the qualified filename of a configuration file.
         '''
-        return os.path.join(self._data_dir, name, 'config.json')
+        return self._qualify(name, FileManager._config_name)
+
+    def _qualify_log(self):
+        '''
+        Get the qualified filename of the log.
+        '''
+        return self._qualify(FileManager._log_name)
+
+    def _qualify(self, *args):
+        '''
+        Qualify a path.
+        '''
+        return os.path.join(self._data_dir, *args)
+
+    _model_mode      = 'rb'             # Model open() mode.
+    _log_name        = 'mldisasm.log'   # Log filename.
+    _config_name     = 'config.json'    # Config filename.
+    _model_name      = 'model.pkl'      # Model filename.
+    _training_name   = 'training.csv'   # Training set filename.

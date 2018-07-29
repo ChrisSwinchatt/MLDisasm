@@ -18,7 +18,6 @@ except ImportError:
 
 LOGGER = logging.root
 LEVEL  = logging.DEBUG
-PATH   = 'mldisasm.log'
 MODE   = 'w'
 STREAM = sys.stderr
 FORMAT = '[%(asctime)s]: %(levelname)s: %(message)s'
@@ -56,13 +55,15 @@ class TeeHandler(logging.Handler):
     '''
     Logging handler which tees logging messages to a stream and a file.
     '''
-    def __init__(self, path, mode, stream, fmt, level=logging.NOTSET):
+    def __init__(self, file, mode, stream, fmt, level=logging.NOTSET):
         '''
         Initialise handler.
         '''
         super().__init__(level)
         # Set up file handler. The log file contains all logging messages.
-        self.file_handler = logging.FileHandler(path, mode)
+        if isinstance(file, str):
+            file = open(str, 'w')
+        self.file_handler = logging.StreamHandler(file, mode)
         self.file_handler.setLevel(logging.NOTSET)
         self.file_handler.setFormatter(logging.Formatter(fmt))
         # Set up stream handler. Log stream only contains INFO level messages and above.
@@ -79,7 +80,7 @@ class TeeHandler(logging.Handler):
         if record.levelno >= self.stream_handler.level:
             self.stream_handler.emit(record)
 
-def init(path=PATH, mode=MODE, stream=STREAM, fmt=FORMAT, level=LEVEL):
+def init(file, mode=MODE, stream=STREAM, fmt=FORMAT, level=LEVEL):
     '''
     Initialise logging subsystem.
     '''
@@ -87,7 +88,7 @@ def init(path=PATH, mode=MODE, stream=STREAM, fmt=FORMAT, level=LEVEL):
         colorama.init()
     logger  = LOGGER
     logger.setLevel(logging.NOTSET)
-    handler = TeeHandler(path, mode, stream, fmt, level)
+    handler = TeeHandler(file, mode, stream, fmt, level)
     logger.handlers = []
     logger.addHandler(handler)
 
