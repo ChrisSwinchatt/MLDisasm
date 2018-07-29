@@ -55,9 +55,9 @@ class TrainingSet:
         '''
         if isinstance(file, str):
             file = open(file, 'rb')
+        self._file      = file
         self._x_encoder = x_encoder
         self._y_encoder = y_encoder
-        self._file      = file
         self._randomise = False
         self._max_seek  = 0
         if shuffled:
@@ -101,9 +101,6 @@ class TrainingSet:
         if self._randomise:
             self._seek()
         line = next(self._file)
-        # Skip lines beginning with '#'.
-        while line.startswith('#'):
-            line = next(self._file)
         # Split on |.
         elems = line.split('|')
         if len(elems) != 2:
