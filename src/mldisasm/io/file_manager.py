@@ -4,6 +4,7 @@
 MLDisasm file manager.
 '''
 
+import json
 import pickle
 import os
 
@@ -33,6 +34,16 @@ class FileManager:
             raise ValueError('Can\'t change directory to {}'.format(path))
         self._data_dir = path
 
+    def load_config(self, name, *args, **kwargs):
+        '''
+        Load configuration data.
+        :param name: The configuration name.
+        :param args: Extra arguments for open().
+        :param kwargs: Keyword arguments for open().
+        '''
+        with self._open_config(name, *args, **kwargs) as file:
+            return json.load(file)
+
     def open_model(self, name, *args, **kwargs):
         '''
         Open model.
@@ -57,6 +68,12 @@ class FileManager:
         with open(self._qualify_model(name), 'rb') as file:
             pickle.dump(model, file)
 
+    def _open_config(self, name, *args, **kwargs):
+        '''
+        Open configuration file.
+        '''
+        return open(self._qualify_config(name), *args, **kwargs)
+
     def _qualify_training(self, name):
         '''
         Qualify a training set filename.
@@ -68,3 +85,9 @@ class FileManager:
         Qualify a model filename.
         '''
         return os.path.join(self._data_dir, name, 'model.pkl')
+
+    def _qualify_config(self, name):
+        '''
+        Qualify a configuration file name.
+        '''
+        return os.path.join(self._data_dir, name, 'config.json')
