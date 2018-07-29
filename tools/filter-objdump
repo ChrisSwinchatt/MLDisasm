@@ -1,0 +1,34 @@
+#!/usr/bin/env python3
+
+'''
+Filter objdump output.
+'''
+
+from   signal import signal, SIGPIPE, SIG_DFL
+import sys
+
+if __name__ == '__main__':
+    # Ignore closed pipe error.
+    signal(SIGPIPE, SIG_DFL)
+    for line in sys.stdin:
+        # Ignore lines that don't begin with space.
+        if not line.startswith(' '):
+            continue
+        # Break on space and ignore the first column, which contains the offset.
+        elems = line.split()[1:]
+        # If there's a column which is just a #, remove it any any columns that come after (comments).
+        if '#' in elems:
+            pos = elems.index('#')
+            elems = elems[:pos]
+        # Columns with only hex digits are the bytes (luckily, no x86 instructions are also hex numbers), remaining
+        # columns are the disassembly.
+        i = 0
+        for i in range(len(elems)):
+            try:
+                int(elems[i], 16)
+            except ValueError:
+                break
+        if i > 0:
+            opcode = ''.join(elems[:i])
+            disasm = ' '.join(elems[i:])
+            print('{}|{}'.format(opcode, disasm))

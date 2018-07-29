@@ -1,0 +1,41 @@
+#!/bin/bash
+
+# Setup.
+name=$(basename "$0")
+here=$(dirname "$0")
+disasm="-n"
+
+if [[ $# -gt 0 ]]; then
+    disasm="$1"
+    shift
+fi
+
+# Do disassembly. 
+case "$disasm" in
+    -n)
+        # Disassemble with ndisasm (NASM). We create a temporary file and use objcopy to extract the executable
+        # sections, because ndisasm interprets every file as raw binary.
+        tmp=$(mktemp)
+        objcopy -O binary "$1" "$tmp"
+        ndisasm "$tmp" | "${here}/filter-ndisasm"
+        rm -f "$tmp"
+        ;;
+    -o)
+        # Disassemble with objdump (binutils).
+        objdump -d "$1" | "${here}/filter-objdump"
+        ;;
+    *)
+        cat >&2 <<EOF
+$name: Get disassembly from ndisasm or objdump with formatting removed.
+
+Usage: (1) $0 file
+       (2) $0 -n <file>
+       (3) $0 -o <file>
+
+1. Disassemble using the default disassembler (default: ndisasm).
+2. Disassemble using ndisasm.
+3. Disassemble using objdump.
+EOF
+        exit 1
+        ;;
+esac
