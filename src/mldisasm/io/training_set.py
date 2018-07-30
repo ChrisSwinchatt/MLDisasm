@@ -8,44 +8,14 @@ import numpy as np
 
 import tensorflow as tf
 
-# Maximum value of a byte.
-BYTE_MAX  = 0xFF
-
-# Maximum value of an ASCII character.
-ASCII_MAX = 0x7F
-
-# Size of an input vector (one-hot).
-INPUT_SIZE = BYTE_MAX + 1
-
-# Size of a target vector (one-hot).
-TARGET_SIZE = ASCII_MAX + 1
-
-def one_hot_bytes(bs):
-    '''
-    One-hot encodes the contents of a bytes object.
-    :param bs: The bytes object.
-    :returns: A tensor with one row per byte in the input object, and INPUT_SIZE (256) elements per row. One element
-    per row will have the value 1 and the others will be zero.
-    '''
-    indices = list(bs)
-    return tf.one_hot(indices, depth=INPUT_SIZE)
-
-def one_hot_ascii(s):
-    '''
-    One-hot encodes the contents of an ASCII string.
-    :param s: The ASCII string.
-    :returns: A tensor with one row per character in the input string, and TARGET_SIZE (128) elements per row. One
-    element per row will have the value 1 and the others will be zero.
-    '''
-    indices = [ord(c) for c in s]
-    return tf.one_hot(indices, depth=TARGET_SIZE)
+from mldisasm.io.codec import ascii_to_one_hot, bytes_to_one_hot
 
 class TrainingSet:
     '''
     Allows iterating over training set data.
     '''
 
-    def __init__(self, file, x_encoder=one_hot_bytes, y_encoder=one_hot_ascii, shuffled=False):
+    def __init__(self, file, x_encoder=bytes_to_one_hot, y_encoder=ascii_to_one_hot, shuffled=False):
         '''
         Initialise TrainingSet.
         :param file: A path or handle to the file containing the training set.
