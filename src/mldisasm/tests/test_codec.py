@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 '''
-Test mldisasm.io.codec.py
+Test mldisasm.io.codec
 '''
 
 import sys
