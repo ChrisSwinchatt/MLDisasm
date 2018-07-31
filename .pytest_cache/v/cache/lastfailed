@@ -1,0 +1,9 @@
+{
+  "src/mldisasm/tests/test_codec.py::test_ascii_to_one_hot": true,
+  "src/mldisasm/tests/test_codec.py::test_bytes_to_one_hot": true,
+  "src/mldisasm/tests/test_codec.py::test_one_hot_to_ascii": true,
+  "src/mldisasm/tests/test_codec.py::test_one_hot_to_bytes": true,
+  "src/mldisasm/tests/test_trainer.py": true,
+  "tests/test_codec.py": true,
+  "tests/test_trainer.py": true
+}

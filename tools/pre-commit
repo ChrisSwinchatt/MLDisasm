@@ -1,0 +1,28 @@
+#!/bin/bash
+
+# Pre-commit script.
+
+name=$(basename "$0")
+test_prefix="$(pwd)/src/mldisasm/tests"
+test_pattern='test_*.py'
+
+# Only force tests when committing to master.
+if [[ "$(git rev-parse --abbrev-ref HEAD)" != "master" ]]; then
+    echo "${name}: Warning: Not running tests because current branch is not master"
+    exit 0
+fi
+
+# Warn user if tests path doesn't exist but don't fail.
+if [[ ! -d "${test_prefix}" ]]; then
+    echo "${name}: Warning: Not running tests: ${test_prefix} does not name a directory" >&2
+    exit 0
+fi
+
+# Warn user if test doesn't contain any matching source files.
+if [[ $(find "${test_prefix}" -name ${test_pattern}) = "" ]]; then
+    echo "${name}: Warning: Not running tests: ${test_prefix} doesn't contain any tests (files matching ${test_pattern}" >&2
+    exit 0
+fi
+
+# Run PyTest and forward its exit status to git.
+pytest -s "${test_prefix}"
