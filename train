@@ -1,0 +1,7 @@
+#!/bin/bash
+
+here=$(dirname "$0")
+
+[[ "x${MLD_PYTHON}" = "x" ]] && MLD_PYTHON="python3"
+
+"${MLD_PYTHON}" "${here}/src/trainer.py" $*
