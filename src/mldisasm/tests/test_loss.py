@@ -8,24 +8,11 @@ import sys
 
 import numpy as np
 
+from mldisasm.tests.common  import *
 from mldisasm.training.loss import _levenshtein
 
-TEST_ITERATIONS   = 100
-MAX_STRING_LENGTH = 11
+TEST_ITERATIONS   = 300
 ASCII_MAX         = 0x7F
-
-def random_size():
-    '''
-    Generate a random integer from 1 to MAX_STRING_LENGTH.
-    '''
-    return np.random.randint(1, MAX_STRING_LENGTH)
-
-def random_string():
-    '''
-    Generate a random string up to MAX_STRING_LENGTH chars long.
-    '''
-    size = random_size()
-    return ''.join(map(chr, np.random.randint(0, ASCII_MAX, size)))
 
 def random_index(max_idx, not_in=None):
     '''
@@ -37,18 +24,18 @@ def random_index(max_idx, not_in=None):
         not_in = []
     while True:
         idx = np.random.randint(max_idx)
-        if idx not in not_in:
+        if not not_in or idx not in not_in:
             return idx
 
-def random_char(different_from=None):
+def random_char(not_in=None):
     '''
     Generate a random ASCII character as an int.
-    :param different_from: None, or a character that should not be generated.
+    :param not_in: None, or a list of characters not to generate.
     '''
-    c = different_from
-    while c == different_from:
+    while True:
         c = np.random.randint(ASCII_MAX)
-    return c
+        if not not_in or c not in not_in:
+            return c
 
 def random_subs(s1):
     '''
@@ -56,12 +43,19 @@ def random_subs(s1):
     :returns: A tuple of the permutated string and the number of substitutions made (Hamming distance).
     '''
     s1_len      = len(s1)
-    num_changes = np.random.randint(1, s1_len)
+    num_changes = np.random.randint(1, int(s1_len/2))
     s2          = list(map(ord, s1))
     subs        = []
     for _ in range(num_changes):
-        idx     = random_index(s1_len, not_in=subs)
-        s2[idx] = random_char(different_from=s2[idx])
+        idx   = random_index(s1_len, not_in=subs)
+        # Don't generate characters that are the same as adjacent chars, otherwise LD detects them as transpositions.
+        # (Which is good, but will return a different result from num_changes.)
+        chars = [s2[idx]]
+        if idx > 0:
+            chars.append(s2[idx - 1])
+        if idx + 1 < s1_len:
+            chars.append(s2[idx + 1])
+        s2[idx] = random_char(not_in=chars)
         subs.append(idx)
     return ''.join(map(chr, s2)), num_changes
 
@@ -101,8 +95,9 @@ def test_levenshtein():
     Test the Levenshtein distance implementation.
     '''
     s1 = random_string()
-    sys.stdout.write('test_levenshtein: ')
+    enter_test(test_levenshtein)
     for _ in range(TEST_ITERATIONS):
+        enter_test_iter()
         # Test substitution.
         s2, delta1_2 = random_subs(s1)
         assert delta1_2 == _levenshtein(s1, s2)
@@ -112,6 +107,4 @@ def test_levenshtein():
         # Test deletion.
         s4, delta3_4 = random_delete(s3)
         assert delta3_4 == _levenshtein(s3, s4)
-        sys.stdout.write('.')
-        sys.stdout.flush()
-    sys.stdout.write('\n')
+    leave_test()
