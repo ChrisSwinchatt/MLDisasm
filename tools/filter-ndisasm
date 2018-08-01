@@ -13,7 +13,7 @@ if __name__ == '__main__':
     for line in sys.stdin:
         # Break on space and ignore the first column, which contains the offset.
         elems = line.split()
-        # Element 0 contains the byte
+        # Element 1 contains the bytes, remaining columns are the disassembly.
         print('{}|{}'.format(
             elems[1],
             ' '.join(elems[2:])
