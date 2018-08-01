@@ -11,10 +11,15 @@ if __name__ == '__main__':
     # Ignore closed pipe error.
     signal(SIGPIPE, SIG_DFL)
     for line in sys.stdin:
+        if not line[0].isdigit():
+            continue
         # Break on space and ignore the first column, which contains the offset.
         elems = line.split()
-        # Element 1 contains the bytes, remaining columns are the disassembly.
-        print('{}|{}'.format(
-            elems[1],
-            ' '.join(elems[2:])
-        ))
+        if len(elems) >= 2:
+            # Element 1 contains the bytes, remaining columns are the disassembly.
+            print('{}|{}'.format(
+                elems[1],
+                ' '.join(elems[2:])
+            ))
+        else:
+            print('{}: Bad line: {}'.format(sys.argv[0], line), file=sys.stderr)

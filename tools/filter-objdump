@@ -29,6 +29,9 @@ if __name__ == '__main__':
         # Remove spaces from opcode digits.
         opcode = elems[0].replace(' ', '')
         disasm = _replace_all('  ', ' ', elems[1])
+        # Remove symbol names from branches.
+        if '<' and '>' in disasm:
+            disasm = disasm[:disasm.find('<')]
         # Remove comments at the end of a line.
         if '#' in disasm:
             disasm = disasm[:disasm.find('#')]

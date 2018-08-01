@@ -19,6 +19,6 @@ EOF
 fi
 
 while read path; do
-    echo "${path}" >&2
+    echo "${name}: ${path}" >&2
     "${here}/get-disasm" "$1" "$path"
 done
