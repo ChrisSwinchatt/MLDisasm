@@ -4,7 +4,11 @@
 MLDisasm encoding and decoding.
 '''
 
+from abc import ABCMeta, abstractmethod
+
 import tensorflow as tf
+
+import mldisasm.io.log as log
 
 # Maximum value of a byte.
 BYTE_MAX  = 0xFF
@@ -18,53 +22,149 @@ INPUT_SIZE = BYTE_MAX + 1
 # Size of a target vector (one-hot).
 TARGET_SIZE = ASCII_MAX + 1
 
-def bytes_to_one_hot(bs):
-    '''
-    One-hot encodes the contents of a bytes object.
-    :param bs: The bytes object.
-    :returns: A tensor with one row per byte in the input object, and INPUT_SIZE (256) elements per row. One element
-    per row will have the value 1 and the others will be zero.
-    '''
-    if not isinstance(bs, bytes):
-        raise TypeError('Expected bytes, not {}'.format(type(bs).__name__))
-    indices = list(bs)
-    return tf.one_hot(indices, depth=INPUT_SIZE)
+# Sequence length.
+SEQ_LEN   = 100
 
-def ascii_to_one_hot(s):
-    '''
-    One-hot encodes the contents of an ASCII string.
-    :param s: The ASCII string.
-    :returns: A tensor with one row per character in the input string, and TARGET_SIZE (128) elements per row. One
-    element per row will have the value 1 and the others will be zero.
-    '''
-    if not isinstance(s, str):
-        raise TypeError('Expected str, not {}'.format(type(s).__name__))
-    indices = [ord(c) for c in s]
-    return tf.one_hot(indices, depth=TARGET_SIZE)
+# Data byte-order.
+BYTEORDER = 'little'
 
-def one_hot_to_bytes(tensor):
+class Codec(metaclass=ABCMeta):
     '''
-    Decode a one-hot encoded tensor into a bytes object.
+    Coder/decoder.
     '''
-    if not isinstance(tensor, tf.Tensor):
-        raise TypeError('Expected Tensor, not {}'.format(type(tensor).__name__))
-    if len(tensor.shape) != 2:
-        raise ValueError('Expected 2D tensor, not {}D'.format(len(tensor.shape)))
-    if tensor.shape[1] != TARGET_SIZE:
-        raise ValueError('Expected size of dim 2 to be {}, not {}'.format(INPUT_SIZE, tensor.shape[1]))
-    return bytes([row.find(max(row)) for row in tensor])
+    @abstractmethod
+    def encode(self, seq):
+        '''
+        Encode a sequence. Sequence will be padded to seq_len if necessary.
+        '''
+        raise NotImplementedError
 
-def one_hot_to_ascii(tensor):
+    @abstractmethod
+    def decode(self, tensor):
+        '''
+        Decode a one-hot tensor of length 'seq_len'.
+        '''
+        raise NotImplementedError
+
+def _recursive_map(func, tensor, axis=0):
     '''
-    Decode a one-hot encoded tensor into an ASCII string.
-    :param tensor: The one-hot encoded tensor.
+    Recursively map a function over a tensor.
     '''
-    if not isinstance(tensor, tf.Tensor):
-        raise TypeError('Expected Tensor, not {}'.format(type(tensor).__name__))
-    if len(tensor.shape) != 2:
-        raise ValueError('Expected 2D tensor, not {}D'.format(len(tensor.shape)))
-    if tensor.shape[1] != TARGET_SIZE:
-        raise ValueError('Expected size of dim 2 to be {}, not {}'.format(TARGET_SIZE, tensor.shape[1]))
-    # Choose the most confident value in each row of the tensor and convert its index into a char according to its ASCII
-    # value.
-    return ''.join([chr(row.find(max(row))) for row in tensor])
+    ndim = len(tensor.shape)
+    if ndim == axis + 1:
+        return tf.map_fn(func, tensor)
+    return tf.map_fn(
+        lambda x: _recursive_map(func, x, axis),
+        tensor
+    )
+
+def _collect_indices(tensor):
+    '''
+    Collect hot indices from one-hot encoded vectors.
+    '''
+    return _recursive_map(
+        lambda x: tf.cast(tf.argmax(x), tf.float32),
+        tensor,
+        axis=1
+    )
+
+class AsciiCodec(Codec):
+    '''
+    Encode ASCII as one-hot, or decode one-hot into ASCII.
+    '''
+    def __init__(self, seq_len):
+        self.seq_len = seq_len
+
+    def encode(self, seq):
+        '''
+        One-hot encodes the contents of an ASCII string.
+        :param s: The ASCII string.
+        :param checked: Set to True if the input has already been checked for validity.
+        :returns: A tensor with one row per character in the input string, and TARGET_SIZE (128) elements per row. One
+        element per row will have the value 1 and the others will be zero.
+        '''
+        if not isinstance(seq, str):
+            raise TypeError('Expected str, not {}'.format(type(seq).__name__))
+        indices = [ord(c) for c in seq]
+        for i, x in enumerate(indices):
+            if x < 0 or x > ASCII_MAX:
+                raise ValueError('{}: Bad ASCII value: Expected [0,{}], got {}.'.format(
+                    i,
+                    ASCII_MAX,
+                    x
+                ))
+        # PAd with empty OH vectors until TARGET_LEN.
+        while len(indices) < self.seq_len:
+            indices.append(-1)
+        return tf.one_hot(indices, depth=TARGET_SIZE)
+
+    def decode(self, tensor):
+        '''
+        Decode a one-hot encoded tensor into an ASCII string.
+        :param tensor: The one-hot encoded tensor.
+        '''
+        # Check parameters.
+        ndim = len(tensor.shape)
+        if not isinstance(tensor, tf.Tensor):
+            raise TypeError('Expected Tensor, not {}'.format(type(tensor).__name__))
+        if not isinstance(tensor, tf.Tensor):
+            raise TypeError('Expected Tensor, not {}'.format(type(tensor).__name__))
+        if ndim not in (2,3):
+            raise ValueError('Expected 2D or 3D tensor, not {}D'.format(len(tensor.shape)))
+        if tensor.shape[-1] != TARGET_SIZE:
+            raise ValueError('Expected size of dim {} to be {}, not {}'.format(
+                ndim - 1,
+                TARGET_SIZE,
+                tensor.shape[1]
+            ))
+        indices = _collect_indices(tensor)
+        string = tf.as_string(
+            _recursive_map(
+                lambda c: tf.cast(c, tf.string),
+                indices,
+                axis=0
+            )
+        )
+        return string
+
+class BytesCodec(Codec):
+    '''
+    Encodes bytes to one-hot, or decodes one hot into bytes.
+    '''
+    def __init__(self, seq_len):
+        '''
+        Initialise BytesCodec.
+        :param seq_len: The sequence length.
+        '''
+        self.seq_len = seq_len
+
+    def encode(self, bs):
+        '''
+        En
+        '''
+        if not isinstance(bs, bytes):
+            raise TypeError('Expected bytes, not {}'.format(type(bs).__name__))
+        bslen = len(bs)
+        if bslen > self.seq_len:
+            raise ValueError('Length of bytes ({}) is larger than sequence length ({})'.format(bslen, self.seq_len))
+        indices = list(bs)
+        for i, x in enumerate(indices):
+            if x < 0 or x > BYTE_MAX:
+                raise ValueError('{}: Bad byte value: Expected [0,{}], got {}.'.format(
+                    i,
+                    BYTE_MAX,
+                    x
+                ))
+        # Pad with empty OH vectors until we reach seq_len.
+        while len(indices) < self.seq_len:
+            indices.append(-1)
+        return tf.one_hot(indices, depth=INPUT_SIZE)
+
+    def decode(self, tensor):
+        '''
+        Decode a one-hot tensor into bytes. Not implemented.
+        '''
+        raise NotImplementedError
+
+default_ascii_codec = AsciiCodec(SEQ_LEN)
+default_bytes_codec = BytesCodec(SEQ_LEN)

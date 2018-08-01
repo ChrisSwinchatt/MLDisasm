@@ -55,7 +55,7 @@ class TeeHandler(logging.Handler):
     '''
     Logging handler which tees logging messages to a stream and a file.
     '''
-    def __init__(self, file, mode, stream, fmt, level=logging.NOTSET):
+    def __init__(self, file, stream, fmt, level=logging.NOTSET):
         '''
         Initialise handler.
         '''
@@ -63,7 +63,7 @@ class TeeHandler(logging.Handler):
         # Set up file handler. The log file contains all logging messages.
         if isinstance(file, str):
             file = open(str, 'w')
-        self.file_handler = logging.StreamHandler(file, mode)
+        self.file_handler = logging.StreamHandler(file)
         self.file_handler.setLevel(logging.NOTSET)
         self.file_handler.setFormatter(logging.Formatter(fmt))
         # Set up stream handler. Log stream only contains INFO level messages and above.
@@ -80,7 +80,7 @@ class TeeHandler(logging.Handler):
         if record.levelno >= self.stream_handler.level:
             self.stream_handler.emit(record)
 
-def init(file, mode=MODE, stream=STREAM, fmt=FORMAT, level=LEVEL):
+def init(file, stream=STREAM, fmt=FORMAT, level=LEVEL):
     '''
     Initialise logging subsystem.
     '''
@@ -88,7 +88,7 @@ def init(file, mode=MODE, stream=STREAM, fmt=FORMAT, level=LEVEL):
         colorama.init()
     logger  = LOGGER
     logger.setLevel(logging.NOTSET)
-    handler = TeeHandler(file, mode, stream, fmt, level)
+    handler = TeeHandler(file, stream, fmt, level)
     logger.handlers = []
     logger.addHandler(handler)
 

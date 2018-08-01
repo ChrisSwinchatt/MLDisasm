@@ -49,7 +49,7 @@ class FileManager:
         :param args: Extra arguments for open().
         :param kwargs: Keyword arguments for open().
         '''
-        return open(self._qualify_log(), *args, **kwargs)
+        return open(self._qualify_log(), 'w', *args, **kwargs)
 
     def open_model(self, name, *args, **kwargs):
         '''
@@ -119,7 +119,7 @@ class FileManager:
         '''
         return os.path.join(self._data_dir, *args)
 
-    _model_mode      = 'rb'             # Model open() mode.
+    _model_mode      = 'r'             # Model open() mode.
     _log_name        = 'mldisasm.log'   # Log filename.
     _config_name     = 'config.json'    # Config filename.
     _model_name      = 'model.pkl'      # Model filename.

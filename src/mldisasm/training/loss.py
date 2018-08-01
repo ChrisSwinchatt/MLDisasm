@@ -6,15 +6,18 @@ MLDisasm loss functions.
 
 import numpy as np
 
-from mldisasm.io.codec import one_hot_to_ascii
+import tensorflow as tf
+
+import mldisasm.io.log   as     log
+from   mldisasm.io.codec import default_ascii_codec
 
 def _levenshtein(s1, s2):
     '''
-    Compute the Levenshstein distance between two strings.
+    Compute the Levenshstein distance between two string tensors.
     '''
     # Check for empty strings. If either string is empty, the LD is the length of the other string.
-    s1_len = len(s1)
-    s2_len = len(s2)
+    s1_len = s1.shape[0]
+    s2_len = s2.shape[0]
     if s1_len == 0:
         return s2_len
     if s2_len == 0:
@@ -47,11 +50,27 @@ def _levenshtein(s1, s2):
     # Last values in the matrix are the compute distance.
     return matrix[-1, -1]
 
-def levenshtein_loss(pred, target):
+def levenshtein_loss(target, pred):
     '''
     Compute the Levenshtein distance between a predicted, one-hot encoded string
     and a target string.
-    :param pred: The one-hot encoded predicted string.
-    :param target: The one-hot encoded target string.
+    :param target: The one-hot encoded target string(s).
+    :param pred: The one-hot encoded predicted string(s).
+    :returns: The Levenshtein Distance between the two strings.
     '''
-    return _levenshtein(one_hot_to_ascii(pred), one_hot_to_ascii(target))
+    shape = target.shape
+    ndim  = len(shape)
+    pred  = tf.reshape(pred, shape)
+    if ndim < 2:
+        raise ValueError('Expected two or more dimensions, got {}'.format(ndim))
+    if ndim > 2:
+        return tf.map_fn(
+            lambda x: _levenshtein(default_ascii_codec.decode(x[0]), default_ascii_codec.decode(x[0])),
+            tf.stack([pred, target], axis=1)
+        )
+    return _levenshtein(default_ascii_codec.decode(pred), default_ascii_codec.decode(target))
+
+# Known loss functions, indexed by name.
+LOSS_FUNCTIONS = {
+    'levenshtein': levenshtein_loss
+}

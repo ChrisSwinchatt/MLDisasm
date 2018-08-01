@@ -4,48 +4,57 @@
 MLDisasm disassembler.
 '''
 
-import tensorflow       as tf
 import tensorflow.keras as keras
 
-from mldisasm.training.loss import levenshtein_loss
+import mldisasm.io.log        as     log
+from   mldisasm.training.loss import LOSS_FUNCTIONS
 
 class Disassembler:
     '''
     Machine learning disassembler.
     '''
-    LOSS_FUNCTIONS = {
-        'levenshtein': levenshtein_loss
-    }
-
-    def __init__(self, **kwargs):
+    def __init__(self, hidden_size, **kwargs):
         '''
         Initialise Disassembler.
-        :param num_units: How many hidden units to use in each layer.
-        :param num_layers: How many hidden layers to use. Default value is 1.
+        :param hidden_size: How many hidden units to use in each LSTM layer.
+        :note: The following optional arguments must be passed as keyword arguments.
+        :param output_size: Dimensionality of output vector. Default is hidden_size.
+        :param lstm_layers: How many LSTM layers to use. Default value is 1.
+        :param lstm_activation: Name of the LSTM activation function. Default is tanh.
+        :param lstm_dropout: Dropout rate between LSTM sequences. Default is 0.
+        :param lstm_r_dropout: Dropout rate between steps within each sequence. Default is 0.
+        :param use_bias: Whether to use bias vectors in LSTM layers. Default is true.
+        :param lstm_forget_bias: Whether to apply unit forget bias. Default is True.
+        :param dense_activation: Name of the dense layer activation function. Default is sigmoid.
+        :param use_softmax: Whether to use a softmax layer. Output of a softmax layer is a vector whose values sum to 1.
+        :param loss: Name of the loss function to minimise during training. Default is levenshtein.
+        :param optimizer: Name of the optimiser. Default is SGD.
         '''
         self.model = keras.Sequential()
         # Add LSTM layers.
-        for _ in range(kwargs.get('lstm_layers', d=1)):
+        for _ in range(kwargs.get('lstm_layers', 1)):
             self.model.add(keras.layers.LSTM(
-                units             = kwargs.get('lstm_units'),
-                activation        = kwargs.get('lstm_activation',  d='tanh'),
-                dropout           = kwargs.get('lstm_dropout',     d=0.0),
-                unit_forget_bias  = kwargs.get('lstm_forget_bias', d=True),
-                recurrent_dropout = kwargs.get('lstm_r_dropout',   d=0.0)
+                units             = hidden_size,
+                activation        = kwargs.get('lstm_activation',  'tanh'),
+                dropout           = kwargs.get('lstm_dropout',     0.0),
+                use_bias          = kwargs.get('use_bias',         True),
+                unit_forget_bias  = kwargs.get('lstm_forget_bias', True),
+                recurrent_dropout = kwargs.get('lstm_r_dropout',   0.0),
+                return_sequences  = True
             ))
         # Add linear layer.
         self.model.add(keras.layers.Dense(
-            units      = kwargs.get('dense_units'),
-            activation = kwargs.get('dense_activation', d='sigmoid')
+            units      = kwargs.get('output_size'),
+            activation = kwargs.get('dense_activation', 'sigmoid')
         ))
         # Add softmax if configured.
-        if kwargs.get('use_softmax'):
+        if kwargs.get('use_softmax', False):
             self.model.add(keras.layers.Softmax())
         # Compile the model with an optimiser and loss function.
-        loss = kwargs.get('loss', d='levenshtein')
-        if loss in Disassembler.LOSS_FUNCTIONS:
-            loss = Disassembler.LOSS_FUNCTIONS[loss]
-        self.model.compile(kwargs.get('optimizer'), loss)
+        loss = kwargs.get('loss', 'levenshtein')
+        if loss in LOSS_FUNCTIONS:
+            loss = LOSS_FUNCTIONS[loss]
+        self.model.compile(kwargs.get('optimizer', 'SGD'), loss)
 
     def train(self, inputs, targets):
         '''
@@ -54,7 +63,10 @@ class Disassembler:
         :param targets: A tensor of one-hot encoded strings.
         :returns: The training history, see tensorflow.keras.Model.fit().
         '''
-        return self.model.fit(inputs, targets)
+        self._validate_training_inputs(inputs, targets)
+        log.debug('Training batch of {}'.format(inputs.shape[0]))
+        results = self.model.fit(inputs, targets, steps_per_epoch=inputs.shape[0])
+        return results
 
     def disassemble(self, inputs):
         '''
@@ -62,3 +74,21 @@ class Disassembler:
         :param inputs: The input tensor.
         '''
         self.model(inputs)
+
+    def _validate_training_inputs(self, inputs, targets):
+        shape_in  = inputs.shape
+        dim_in    = len(shape_in)
+        shape_out = targets.shape
+        dim_out   = len(shape_out)
+        if dim_in != 3:
+            raise ValueError('Incorrect dimensionality {} of input tensor (wanted 3)'.format(dim_in))
+        if dim_in != 3:
+            raise ValueError('Incorrect dimensionality {} of target tensor (wanted 3)'.format(dim_out))
+        if shape_in[0] != shape_out[0]:
+            raise ValueError('Dimension 0 (batch size) of inputs and targets must match (got {} and {})'.format(
+                shape_in[0],
+                shape_out[0]
+            ))
+
+    def __str__(self):
+        return self.model.summary()

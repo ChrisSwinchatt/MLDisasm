@@ -4,8 +4,6 @@
 Test mldisasm.training.loss
 '''
 
-import sys
-
 import numpy as np
 
 from mldisasm.tests.common  import *
