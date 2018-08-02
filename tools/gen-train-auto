@@ -1,0 +1,83 @@
+#!/bin/bash
+
+if [[ $# -ne 2 ]]; then
+    cat >&2 <<EOF
+Usage: (1) $0 -o <model name>
+       (2) $0 -n <model name>
+
+1. Generate training set using OBJDUMP.
+2. Generate training set using NDISASM.
+EOF
+    exit 1
+fi
+
+here=$(dirname "$0")
+name=$(basename "$0")
+disasm="$1"
+model_name="$2"
+
+gen_train_set="${here}/gen-train-set"
+tokenize="${here}/tokenize"
+
+data_prefix="$(pwd)/data"
+file_list="${data_prefix}/files.list"
+model_prefix="${data_prefix}/${model_name}"
+training_file="${model_prefix}/training.csv"
+token_file="${model_prefix}/tokens.list"
+
+bin_path="/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:$HOME/.local/bin"
+
+# Find executables in a directory.
+function find_exes {
+    local path="$1"
+    local mimetype
+    case $(uname -s) in
+        CYGWIN*|MINGW*MSYS*)
+            mimetype="application/x-dosexec; charset=binary"
+            ;;
+        *)
+            mimetype="application/x-executable; charset=binary"
+            ;;
+    esac
+    find "${path}" -type f -exec sh -c "file -i '{}' | grep \"${mimetype}\"" \; | sed 's/:.*//'
+}
+
+function array_contains {
+    local value=$1
+    shift
+    local array=("$@")
+    for item in "${array[@]}"; do
+        if [[ "${item}" = "${value}" ]]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+# Generate file list.
+function gen_file_list {
+    local -a seen_dirs
+    echo "${name}: File list ${file_list} not found, generating new list" >&2
+    ( IFS=:
+        for p in ${bin_path}; do
+            # Test whether the path names a directory.
+            if [[ -d "${p}" ]]; then
+                # Test whether we've seen the directory before.
+                if array_contains "${p}" "${seen_dirs[@]}"; then
+                    echo "${name}: Skipping already-seen directory ${p}" >&2
+                else
+                    # Scan the directory and add it to the list of seen directories.
+                    echo "${name}: Adding executable binaries from ${p}" >&2
+                    find_exes "${p}"
+                    seen_dirs+="${p}"
+                fi
+            else
+                echo "${name}: ${p}: Skipping non-directory \"${p}\"" >&2
+            fi
+        done
+    )
+}
+
+[[ ! -f "${file_list}" ]] && ( gen_file_list >"${file_list}" )
+
+cat "${file_list}" | "${gen_train_set}" "${disasm}" <"${file_list}" | tee "${training_file}" | "${tokenize}" >"${token_file}"
