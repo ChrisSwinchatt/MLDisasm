@@ -78,36 +78,45 @@ def train_model(tset, n_epochs, y_codec, session=None):
             batch_num += 1
         p.end()
 
-def start_training(tset, config, y_codec):
+def load_datasets(config, file_mgr):
+    '''
+    Load training and token sets.
+    '''
+    tset    = file_mgr.open_training(model_name)
+    tokens  = file_mgr.load_tokens(model_name, **config)
+    x_codec = BytesCodec(config['seq_len'])
+    y_codec = AsciiCodec(config['seq_len'], tokens)
+    tset    = file_mgr.open_training(
+        model_name,
+        batch_size=config['batch_size'],
+        x_encoder=x_codec,
+        y_encoder=y_codec
+    )
+    return tset, y_codec, tokens
+
+def start_training(model_name, file_mgr):
     '''
     Train a model within a TF session.
     '''
-    device   = select_device(config)
-    n_epochs = config['epochs']
+    # Load configuration and set TF device.
+    config = file_mgr.load_config(model_name)
+    device = select_device(config)
+    # Initialise profiler.
+    profiling.init(config['prof_time'], config['prof_mem'])
     with tf.device(device), tf.Session() as session:
-        train_model(tset, n_epochs, y_codec, session)
+        # Load datasets and start training.
+        tset, codec, tokens = load_datasets(config, file_mgr)
+        train_model(tset, config['epochs'], codec, session)
 
 if __name__ == '__main__':
     # Read command-line args.
     model_name = read_command_line()
     # Start file manager & logging.
-    file_mgr   = FileManager()
+    file_mgr = FileManager()
     log.init(file_mgr.open_log())
+    # Train a model.
     try:
-        # Read configuration & load training data.
-        config  = file_mgr.load_config(model_name)
-        profiling.init(config['prof_time'], config['prof_mem'])
-        tokens  = file_mgr.load_tokens(model_name, **config)
-        x_codec = BytesCodec(config['seq_len'])
-        y_codec = AsciiCodec(config['seq_len'], tokens)
-        tset    = file_mgr.open_training(
-            model_name,
-            batch_size=config['batch_size'],
-            x_encoder=x_codec,
-            y_encoder=y_codec
-        )
-        # Begin training.
-        start_training(tset, config, y_codec)
+        start_training(model_name, file_mgr)
     except Exception as e:
         log.debug('====================[ UNCAUGHT EXCEPTION ]====================')
         log.error('Uncaught exception \'{}\': {}'.format(type(e).__name__, ' '.join(e.args)))
