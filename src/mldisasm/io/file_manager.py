@@ -34,6 +34,13 @@ class FileManager:
             raise ValueError('Can\'t change directory to {}'.format(path))
         self._data_dir = path
 
+    @property
+    def log_file_path(self):
+        '''
+        Get the path to the log file.
+        '''
+        return self._qualify_log()
+
     def load_config(self, name, *args, **kwargs):
         '''
         Load configuration data.
