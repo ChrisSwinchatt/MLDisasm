@@ -5,6 +5,7 @@ MLDisasm encoding and decoding.
 '''
 
 from abc import ABCMeta, abstractmethod
+import time
 
 import tensorflow as tf
 
@@ -93,10 +94,14 @@ class AsciiCodec(Codec):
                     ASCII_MAX,
                     x
                 ))
-        # PAd with empty OH vectors until TARGET_LEN.
+        # Pad with empty OH vectors until TARGET_LEN.
         while len(indices) < self.seq_len:
             indices.append(-1)
-        return tf.one_hot(indices, depth=TARGET_SIZE)
+        start = time.time()
+        t = tf.one_hot(indices, depth=TARGET_SIZE)
+        elapsed = time.time() - start
+        log.info('Encoded ASCII vector in {} seconds'.format(elapsed))
+        return t
 
     def decode(self, tensor):
         '''
@@ -140,7 +145,7 @@ class BytesCodec(Codec):
 
     def encode(self, bs):
         '''
-        En
+        Encode a bytes object as a one-hot tensor.
         '''
         if not isinstance(bs, bytes):
             raise TypeError('Expected bytes, not {}'.format(type(bs).__name__))
@@ -158,7 +163,11 @@ class BytesCodec(Codec):
         # Pad with empty OH vectors until we reach seq_len.
         while len(indices) < self.seq_len:
             indices.append(-1)
-        return tf.one_hot(indices, depth=INPUT_SIZE)
+        start = time.time()
+        t = tf.one_hot(indices, depth=INPUT_SIZE)
+        elapsed = time.time() - start
+        log.info('Encoded bytes vector in {} seconds'.format(elapsed))
+        return t
 
     def decode(self, tensor):
         '''

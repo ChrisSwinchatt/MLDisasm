@@ -4,7 +4,8 @@
 MLDisasm training set.
 '''
 
-import numpy as np
+import threading
+import time
 
 import tensorflow as tf
 
@@ -28,7 +29,7 @@ class TrainingSet:
     Allows iterating over training set data.
     '''
 
-    def __init__(self, file, batch_size=1, x_encoder=default_bytes_codec, y_encoder=default_ascii_codec, shuffled=False):
+    def __init__(self, file, batch_size=1, x_encoder=default_bytes_codec, y_encoder=default_ascii_codec):
         '''
         Initialise TrainingSet.
         :param file: A path or handle to the file containing the training set.
@@ -36,103 +37,155 @@ class TrainingSet:
         set size, the last batch will be smaller than the others.
         :param x_encoder: A callable which encodes the input bytes into a tensor. Default is to use one-hot encoding.
         :param y_encoder: A callable which encodes the target string into a tensor. Default is to use one-hot encoding.
-        :param shuffled: Whether to shuffle the examples.
         '''
         if batch_size < 1:
             batch_size = 1
         if isinstance(file, str):
             file = open(file, 'r')
-        self.batch_size  = batch_size
         self._file       = file
+        self._batch_size  = batch_size
         self._x_encoder  = x_encoder
         self._y_encoder  = y_encoder
-        self._randomise  = False
-        self._max_seek   = 0
-        self._index      = 0
-        if shuffled:
-            self.shuffle()
+        self._record_num = 1
+        self._worker     = TrainingSet.Worker(self._file, self._batch_size)
+        self._worker.start()
 
-    def __len__(self):
+    def __del__(self):
         '''
-        Get the number of examples in the training set.
-        :returns: The number of examples in the training set.
+        Stop worker thread before destroying object.
         '''
-        if self._max_seek > 0:
-            return self._max_seek
-        self._file.seek(0)
-        self._max_seek = len([_ for _ in self._file])
-        self._file.seek(self._index)
-        return self._max_seek
-
-    def shuffle(self):
-        '''
-        Return the examples in shuffled order from now on. Note: Depending on the size of the dataset, there is a chance
-        this can return examples multiple times. If `N` is the number of examples, the probability of returning an
-        example `k` times is ~1/(N^k).
-        '''
-        self._randomise = True
-        self._max_seek  = len([_ for _ in self._file])
-        self._seek()
+        self._worker.join()
 
     def __iter__(self):
         '''
         Get an iterator to the training set.
         '''
-        self._seek()
+        self._worker.restart()
         return self
 
     def __next__(self):
         '''
-        Get the next item in the set.
+        Get the next batch of records. Blocks until the batch is available.
         :returns: A tuple of (example,targets)
         '''
-        # Seek to a random position in the file in shuffle mode.
-        if self._randomise:
-            self._seek()
-        # Retrieve a batch of examples.
-        log.debug('Loading a batch of {}'.format(self.batch_size))
-        examples = [None]*self.batch_size
-        targets  = [None]*self.batch_size
-        for i in range(self.batch_size):
-            X, y = self._get_single_pair()
-            examples[i] = X
-            targets[i]  = y
-        # Convert lists to tensors.
+        log.debug('Loading batch of {}'.format(self._batch_size))
+        batch     = next(self._worker)
+        batch_len = len(batch)
+        examples  = [None]*batch_len
+        targets   = [None]*batch_len
+        log.debug('Read {} records'.format(batch_len))
+        for i in range(batch_len):
+            elems  = batch[i].split(DELIMITER)
+            if len(elems) != 2:
+                raise ValueError('training:{}: Bad training example: {}'.format(self._record_num, batch[i]))
+            try:
+                # Append encoded tensors.
+                target       = elems[1]
+                opcode       = int(elems[0], 16)
+                opcode_len   = int(0.5 + len(elems[0])/CHARS_PER_BYTE)
+                opcode_bytes = opcode.to_bytes(opcode_len, BYTEORDER)
+                X = self._x_encoder.encode(opcode_bytes)
+                y = self._y_encoder.encode(target)
+                self._record_num += 1
+                examples[i] = X
+                targets[i]  = y
+            except ValueError as e:
+                # Re-raise the exception with a better message. 'raise ... from None' tells Python not to produce output
+                # like 'while handling ValueError, another exception occurred'.
+                raise ValueError('training:{}: {}: {}'.format(
+                    self._record_num,
+                    batch[i],
+                    str(e)
+                )) from None
+        log.info('BBB')
+        # Convert the lists of tensors into tensors.
         return tf.stack(examples), tf.stack(targets)
 
-    def _seek(self):
+    class Worker(threading.Thread):
         '''
-        Seek to the beginning or a random position in the file.
+        Load training data in a subprocess.
         '''
-        self._index = 0
-        if self._randomise:
-            self._index = np.random.randint(self._max_seek)
-        self._file.seek(self._index)
+        def __init__(self, file, batch_size):
+            '''
+            Initialise Worker.
+            :param file: An open file containing a training set.
+            :param batch_size: The size of a batch.
+            '''
+            super().__init__()
+            assert hasattr(file, 'readable')
+            assert file.readable()
+            self._file        = file
+            self._batch_size  = batch_size
+            self._active      = True
+            self._lock        = threading.Lock()
+            self._records     = [None]*self._batch_size
+            self._index       = 0
+            self._batch_ready = False
 
-    def _get_single_pair(self):
-        '''
-        Get a single (example,target) pair from the training set.
-        '''
-        line = next(self._file)
-        # Split on |.
-        elems = line.split(DELIMITER)
-        if len(elems) != 2:
-            raise ValueError('training:{}: Bad training example: {}'.format(self._index, line))
-        try:
-            # Return encoded tensors.
-            target       = elems[1]
-            opcode       = int(elems[0], 16)
-            opcode_len   = int(0.5 + len(elems[0])/CHARS_PER_BYTE)
-            opcode_bytes = opcode.to_bytes(opcode_len, BYTEORDER)
-            X = self._x_encoder.encode(opcode_bytes)
-            y = self._y_encoder.encode(target)
-            self._index += len(line)
-            return X, y
-        except ValueError as e:
-            # Re-raise the exception with a better message. 'raise ... from None' tells Python not to produce output
-            # like 'while handling ValueError, another exception occurred'.
-            raise ValueError('training:{}:{}: {}'.format(
-                self._index,
-                elems[0],
-                str(e)
-            )) from None
+        def restart(self):
+            '''
+            Restart the thread and begin reading from the beginning of the file.
+            '''
+            with self._lock:
+                self._file.seek(0)
+                self._index  = 0
+                self._active = True
+
+        def run(self):
+            '''
+            Run the thread's main loop.
+            '''
+            while self._active:
+                try:
+                    self.load_batch()
+                except StopIteration:
+                    self._active = False
+
+        def join(self):
+            '''
+            Tell the thread to stop and wait until it does.
+            '''
+            self._active = False
+            super().join()
+
+        def load_batch(self):
+            '''
+            Load a batch of records.
+            :raises StopIteration: If there are no more examples to load. There may still be some saved in the batch.
+            '''
+            with self._lock:
+                num_records = len(self._records)
+                num_to_load = num_records - self._index
+                if num_to_load > 0:
+                    log.debug('Loading {} records'.format(num_to_load))
+                    while self._index < len(self._records):
+                        record = self._file.readline()
+                        if not record:
+                            raise StopIteration
+                        self._records[self._index] = record
+                        self._index += 1
+                    self._batch_ready = True
+
+        def __iter__(self):
+            '''
+            Get an iterator to the worker.
+            '''
+            return self
+
+        def __next__(self):
+            '''
+            Get the next batch of records. May block until a batch is ready.
+            :raises StopIteration: If there are no more records in the file.
+            '''
+            # Raise StopIteration if we've run out of records and the batch is empty.
+            if not self._active and not self._batch_ready:
+                raise StopIteration
+            # Block until a batch is loaded.
+            while not self._batch_ready:
+                time.sleep(0)
+            records = []
+            with self._lock:
+                self._index = 0
+                self._batch_ready = False
+                records = list(self._records)
+            return records
