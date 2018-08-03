@@ -8,7 +8,8 @@ import json
 import pickle
 import os
 
-from mldisasm.io.training_set import TrainingSet
+from mldisasm.io.training_set  import TrainingSet
+from mldisasm.model.token_list import TokenList
 
 class FileManager:
     '''
@@ -50,6 +51,15 @@ class FileManager:
         '''
         with self._open_config(name, *args, **kwargs) as file:
             return json.load(file)
+
+    def load_tokens(self, name, *args, **kwargs):
+        '''
+        Load tokens list.
+        :param name: Name of the model.
+        :param args: Extra arguments for TokenList().
+        :param kwargs: Keyword arguments for TokenList().
+        '''
+        return TokenList(self._qualify_tokens(name), *args, **kwargs)
 
     def open_log(self, *args, **kwargs):
         '''
@@ -114,6 +124,12 @@ class FileManager:
         '''
         return self._qualify(name, FileManager._config_name)
 
+    def _qualify_tokens(self, name):
+        '''
+        Get the qualified name of a token list.
+        '''
+        return self._qualify(name, FileManager._tokens_name)
+
     def _qualify_log(self):
         '''
         Get the qualified filename of the log.
@@ -126,8 +142,9 @@ class FileManager:
         '''
         return os.path.join(self._data_dir, *args)
 
-    _model_mode      = 'r'             # Model open() mode.
+    _model_mode      = 'r'              # Model open() mode.
     _log_name        = 'mldisasm.log'   # Log filename.
     _config_name     = 'config.json'    # Config filename.
     _model_name      = 'model.pkl'      # Model filename.
     _training_name   = 'training.csv'   # Training set filename.
+    _tokens_name     = 'tokens.list'    # Token list filena,e.

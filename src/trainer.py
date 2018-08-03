@@ -6,7 +6,6 @@ Usage: {0} <model>
 
 import os
 import sys
-import time
 import traceback as tb
 import warnings
 
@@ -22,9 +21,15 @@ if __name__ == '__main__':
 
 import tensorflow as tf
 
-import mldisasm.io.log as log
-from   mldisasm.io.file_manager    import FileManager
-from   mldisasm.model.disassembler import Disassembler
+if os.environ.get('MLD_DEBUG', '0') == '1':
+    tf.enable_eager_execution()
+
+import mldisasm.benchmarks.profiling as     profiling
+from   mldisasm.benchmarks.profiling import prof
+from   mldisasm.io.codec             import AsciiCodec, BytesCodec
+import mldisasm.io.log               as     log
+from   mldisasm.io.file_manager      import FileManager
+from   mldisasm.model.disassembler   import Disassembler
 
 def read_command_line():
     '''
@@ -54,57 +59,58 @@ def select_device(config):
     log.info('Running TensorFlow on preferred device \'{}\''.format(preferred))
     return preferred
 
-def train_model(tset, n_epochs, session=None):
+def train_model(tset, n_epochs, y_codec, session=None):
     '''
     Train a model.
     '''
     # Create a model.
-    model = Disassembler(**config['model'])
+    model = Disassembler(decoder=y_codec, **config['model'])
     for epoch in range(1, n_epochs + 1):
-        log.info('Starting epoch {}/{}'.format(epoch, n_epochs))
-        total_loss  = 0
-        start_time = time.time()
+        total_loss = 0
         batch_num  = 1
+        log.info('Epoch {} of {}'.format(epoch,n_epochs))
+        p = prof('Epoch {} finished with loss={}', epoch, total_loss)
         for X, y in tset:
-            log.info(' `- Batch {}'.format(batch_num))
+            log.info('`- Batch {} of {}'.format(batch_num, tset.num_batches))
             total_loss = model.train(X, y)
             if session:
                 session.run(total_loss)
             batch_num += 1
-        elapsed = time.time() - start_time
-        log.info('Epoch {} finished in {:f} sec with loss={}'.format(
-            epoch,
-            elapsed,
-            total_loss
-        ))
+        p.end()
 
-def start_training(tset, config):
+def start_training(tset, config, y_codec):
     '''
     Train a model within a TF session.
     '''
     device   = select_device(config)
     n_epochs = config['epochs']
-    with tf.device(device), tf.Session(config=tf.ConfigProto(log_device_placement=True)) as session:
-        train_model(tset, n_epochs, session)
+    with tf.device(device), tf.Session() as session:
+        train_model(tset, n_epochs, y_codec, session)
 
 if __name__ == '__main__':
     # Read command-line args.
     model_name = read_command_line()
-    # Start file manager and logging/
+    # Start file manager & logging.
     file_mgr   = FileManager()
     log.init(file_mgr.open_log())
     try:
-        # Read configuration & load training set.
-        config = file_mgr.load_config(model_name)
-        tset   = file_mgr.open_training(model_name, batch_size=config['batch_size'])
+        # Read configuration & load training data.
+        config  = file_mgr.load_config(model_name)
+        profiling.init(config['prof_time'], config['prof_mem'])
+        tokens  = file_mgr.load_tokens(model_name, **config)
+        x_codec = BytesCodec(config['seq_len'])
+        y_codec = AsciiCodec(config['seq_len'], tokens)
+        tset    = file_mgr.open_training(
+            model_name,
+            batch_size=config['batch_size'],
+            x_encoder=x_codec,
+            y_encoder=y_codec
+        )
         # Begin training.
-        start_training(tset, config)
+        start_training(tset, config, y_codec)
     except Exception as e:
         log.debug('====================[ UNCAUGHT EXCEPTION ]====================')
-        log.error('Uncaught exception \'{}\': {}. See the log at {} for details.'.format(
-            type(e).__name__,
-            ' '.join(e.args),
-            file_mgr.log_file_path
-        ))
+        log.error('Uncaught exception \'{}\': {}'.format(type(e).__name__, ' '.join(e.args)))
+        log.error('See the log at {} for details.'.format(file_mgr.log_file_path))
         log.debug('Exception Traceback:\n{}'.format(''.join(tb.format_tb(e.__traceback__))))
         exit(1)

@@ -4,6 +4,8 @@
 MLDisasm disassembler.
 '''
 
+import functools
+
 import tensorflow.keras as keras
 
 import mldisasm.io.log        as     log
@@ -13,10 +15,11 @@ class Disassembler:
     '''
     Machine learning disassembler.
     '''
-    def __init__(self, hidden_size, **kwargs):
+    def __init__(self, hidden_size, decoder=None, **kwargs):
         '''
         Initialise Disassembler.
         :param hidden_size: How many hidden units to use in each LSTM layer.
+        :param decoder: If passed, decodes target strings during training.
         :note: The following optional arguments must be passed as keyword arguments.
         :param output_size: Dimensionality of output vector. Default is hidden_size.
         :param lstm_layers: How many LSTM layers to use. Default value is 1.
@@ -42,18 +45,20 @@ class Disassembler:
                 recurrent_dropout = kwargs.get('lstm_r_dropout',   0.0),
                 return_sequences  = True
             ))
-        # Add linear layer.
-        self.model.add(keras.layers.Dense(
-            units      = kwargs.get('output_size'),
-            activation = kwargs.get('dense_activation', 'sigmoid')
-        ))
-        # Add softmax if configured.
-        if kwargs.get('use_softmax', False):
-            self.model.add(keras.layers.Softmax())
+        output_size = kwargs.get('output_size', hidden_size)
+        if output_size != hidden_size:
+            # Add linear layer.
+            self.model.add(keras.layers.Dense(
+                units      = output_size,
+                activation = kwargs.get('dense_activation', 'sigmoid')
+            ))
         # Compile the model with an optimiser and loss function.
         loss = kwargs.get('loss', 'levenshtein')
         if loss in LOSS_FUNCTIONS:
-            loss = LOSS_FUNCTIONS[loss]
+            loss = functools.partial(
+                LOSS_FUNCTIONS[loss],
+                decoder
+            )
         self.model.compile(kwargs.get('optimizer', 'SGD'), loss)
 
     def train(self, inputs, targets):
@@ -65,8 +70,7 @@ class Disassembler:
         '''
         self._validate_training_inputs(inputs, targets)
         log.debug('Training batch of {}'.format(inputs.shape[0]))
-        results = self.model.fit(inputs, targets, steps_per_epoch=inputs.shape[0])
-        return results
+        return self.model.fit(inputs, targets, steps_per_epoch=inputs.shape[0])
 
     def disassemble(self, inputs):
         '''

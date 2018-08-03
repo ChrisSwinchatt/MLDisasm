@@ -9,8 +9,10 @@ import time
 
 import tensorflow as tf
 
-from   mldisasm.io.codec import default_ascii_codec, default_bytes_codec, BYTEORDER
-import mldisasm.io.log   as     log
+
+from   mldisasm.benchmarks.profiling import prof
+from   mldisasm.io.codec             import BYTEORDER
+import mldisasm.io.log as log
 
 # Training set delimiter.
 DELIMITER = '|'
@@ -29,7 +31,7 @@ class TrainingSet:
     Allows iterating over training set data.
     '''
 
-    def __init__(self, file, batch_size=1, x_encoder=default_bytes_codec, y_encoder=default_ascii_codec):
+    def __init__(self, file, batch_size, x_encoder, y_encoder):
         '''
         Initialise TrainingSet.
         :param file: A path or handle to the file containing the training set.
@@ -42,12 +44,15 @@ class TrainingSet:
             batch_size = 1
         if isinstance(file, str):
             file = open(file, 'r')
-        self._file       = file
+        p = prof('Opened training set')
+        self._file        = file
+        self._num_records = len([_ for _ in self._file])
+        self._file.seek(0)
         self._batch_size  = batch_size
-        self._x_encoder  = x_encoder
-        self._y_encoder  = y_encoder
-        self._record_num = 1
-        self._worker     = TrainingSet.Worker(self._file, self._batch_size)
+        self._x_encoder   = x_encoder
+        self._y_encoder   = y_encoder
+        self._record_num  = 1
+        self._worker      = TrainingSet.Worker(self._file, self._batch_size)
         self._worker.start()
 
     def __del__(self):
@@ -55,6 +60,19 @@ class TrainingSet:
         Stop worker thread before destroying object.
         '''
         self._worker.join()
+
+    def __len__(self):
+        '''
+        Get the number of records in the training set.
+        '''
+        return self._num_records
+
+    @property
+    def num_batches(self):
+        '''
+        Get the number of batches in the training set.
+        '''
+        return int(self._num_records/self._batch_size)
 
     def __iter__(self):
         '''
@@ -68,14 +86,14 @@ class TrainingSet:
         Get the next batch of records. Blocks until the batch is available.
         :returns: A tuple of (example,targets)
         '''
-        log.debug('Loading batch of {}'.format(self._batch_size))
+        p         = prof('Processed batch')
         batch     = next(self._worker)
         batch_len = len(batch)
         examples  = [None]*batch_len
         targets   = [None]*batch_len
-        log.debug('Read {} records'.format(batch_len))
         for i in range(batch_len):
-            elems  = batch[i].split(DELIMITER)
+            record = batch[i][:-1] # Cut off the newline.
+            elems  = record.split(DELIMITER)
             if len(elems) != 2:
                 raise ValueError('training:{}: Bad training example: {}'.format(self._record_num, batch[i]))
             try:
@@ -84,22 +102,22 @@ class TrainingSet:
                 opcode       = int(elems[0], 16)
                 opcode_len   = int(0.5 + len(elems[0])/CHARS_PER_BYTE)
                 opcode_bytes = opcode.to_bytes(opcode_len, BYTEORDER)
-                X = self._x_encoder.encode(opcode_bytes)
-                y = self._y_encoder.encode(target)
+                examples[i]  = self._x_encoder.encode(opcode_bytes)
+                targets[i]   = self._y_encoder.encode(target)
                 self._record_num += 1
-                examples[i] = X
-                targets[i]  = y
             except ValueError as e:
                 # Re-raise the exception with a better message. 'raise ... from None' tells Python not to produce output
                 # like 'while handling ValueError, another exception occurred'.
                 raise ValueError('training:{}: {}: {}'.format(
                     self._record_num,
-                    batch[i],
+                    record,
                     str(e)
                 )) from None
-        log.info('BBB')
-        # Convert the lists of tensors into tensors.
-        return tf.stack(examples), tf.stack(targets)
+        # Convert into tensors with fixed shape.
+        return (
+            tf.reshape(tf.stack(examples), (batch_len, examples[0].shape[0], 1)),
+            tf.reshape(tf.stack(targets),  (batch_len, targets[0].shape[0],  1))
+        )
 
     class Worker(threading.Thread):
         '''
@@ -157,7 +175,7 @@ class TrainingSet:
                 num_records = len(self._records)
                 num_to_load = num_records - self._index
                 if num_to_load > 0:
-                    log.debug('Loading {} records'.format(num_to_load))
+                    p = prof('Loaded {} records', num_to_load)
                     while self._index < len(self._records):
                         record = self._file.readline()
                         if not record:
@@ -165,7 +183,7 @@ class TrainingSet:
                         self._records[self._index] = record
                         self._index += 1
                     self._batch_ready = True
-
+                    del p
         def __iter__(self):
             '''
             Get an iterator to the worker.
