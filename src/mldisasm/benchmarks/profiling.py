@@ -26,7 +26,9 @@ class Profiler:
         :param start_msg: A message to print upon starting. If None or empty, nothing is printed.
         :param end_msg: A message to print upon ending. If None or empty but at least one of PROF_TIME and PROF_MEM is
         True, a default message containing the amount of time and/or memory used is printed.
-        :param args: Extra format arguments for end_msg.
+        :param args: Extra format arguments for end_msg. Any callable arguments will be called (with no arguments) and
+        replaced by their return value. This can be used to print values that change in the time between the object's
+        instantiation and its destruction/the call to Profiler.end().
         '''
         # Save params and initialise attributes.
         if not end_msg:
@@ -68,26 +70,39 @@ class Profiler:
 
     def end(self):
         '''
-        Print the message and stop profiling. Successive calls will print the same message, but calls to __del__ won't
-        do anything after this is called.
+        Print the message and profiling info. The start time and memory usage are reset so that successive calls to end
+        print new information. However, after this function is called, deleting the instance will not print the new
+        message. To re-enable this behaviour, set the "ended" attribute to False.
         '''
+        # Get the new end time & memory usage.
         self.end_time = time.time()
         self.end_mem  = self.process.memory_info()
-        msg   = self.end_msg
-        args  = self.args
-        alloc = self.allocated
+        msg  = self.end_msg
+        args = self.args
+        # Call callable args.
+        tmp = tuple()
+        for arg in args:
+            if hasattr(arg, '__call__'):
+                arg = arg()
+            tmp = (*tmp, arg)
+        args = tmp
+        # Append time/mem info.
         if PROF_TIME:
-            msg += ' in {} seconds'
+            msg += ' in {:f} seconds'
             args = (*args, self.elapsed)
         if PROF_MEM:
+            alloc = self.allocated
             if alloc >= 0:
-                msg += ', allocated {} bytes'
+                msg += ' and allocated {} bytes'
             else:
                 alloc = -alloc
-                msg += ', freed {} bytes'
-            args = (*args, self.allocated)
+                msg += ' and freed {} bytes'
+            args = (*args, alloc)
         self._print(msg.format(*args))
         self.ended = True
+        # Reset stats.
+        self.start_time = self.end_time
+        self.start_mem  = self.end_mem
 
     def _print(self, msg):
         if self._use_log:

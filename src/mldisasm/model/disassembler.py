@@ -8,8 +8,9 @@ import functools
 
 import tensorflow.keras as keras
 
-import mldisasm.io.log        as     log
-from   mldisasm.training.loss import LOSS_FUNCTIONS
+from   mldisasm.benchmarks.profiling import prof
+import mldisasm.io.log               as     log
+from   mldisasm.training.loss        import LOSS_FUNCTIONS
 
 class Disassembler:
     '''
@@ -32,8 +33,11 @@ class Disassembler:
         :param use_softmax: Whether to use a softmax layer. Output of a softmax layer is a vector whose values sum to 1.
         :param loss: Name of the loss function to minimise during training. Default is levenshtein.
         :param optimizer: Name of the optimiser. Default is SGD.
+        :param batch_size: Batch size. Default is None (unknown).
+        :param seq_len: Sequence length. Default is None (unknown).
         '''
-        self.model = keras.Sequential()
+        # Create sequential model..
+        self.model = keras.Sequential(name='sequential')
         # Add LSTM layers.
         for _ in range(kwargs.get('lstm_layers', 1)):
             self.model.add(keras.layers.LSTM(
@@ -46,12 +50,11 @@ class Disassembler:
                 return_sequences  = True
             ))
         output_size = kwargs.get('output_size', hidden_size)
-        if output_size != hidden_size:
-            # Add linear layer.
-            self.model.add(keras.layers.Dense(
-                units      = output_size,
-                activation = kwargs.get('dense_activation', 'sigmoid')
-            ))
+        # Add dense layer.
+        self.model.add(keras.layers.Dense(
+            units      = output_size,
+            activation = kwargs.get('dense_activation', 'sigmoid')
+        ))
         # Compile the model with an optimiser and loss function.
         loss = kwargs.get('loss', 'levenshtein')
         if loss in LOSS_FUNCTIONS:
@@ -68,8 +71,8 @@ class Disassembler:
         :param targets: A tensor of one-hot encoded strings.
         :returns: The training history, see tensorflow.keras.Model.fit().
         '''
+        profiler = prof('Trained batch of {}'.format(inputs.shape[0]))
         self._validate_training_inputs(inputs, targets)
-        log.debug('Training batch of {}'.format(inputs.shape[0]))
         return self.model.fit(inputs, targets, steps_per_epoch=inputs.shape[0])
 
     def disassemble(self, inputs):

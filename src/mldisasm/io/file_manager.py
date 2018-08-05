@@ -4,8 +4,8 @@
 MLDisasm file manager.
 '''
 
-import json
 import pickle
+import json
 import os
 
 from mldisasm.io.training_set  import TrainingSet
@@ -42,24 +42,34 @@ class FileManager:
         '''
         return self._qualify_log()
 
-    def load_config(self, name, *args, **kwargs):
+    def load_config(self, *args, **kwargs):
         '''
         Load configuration data.
         :param name: The configuration name.
         :param args: Extra arguments for open().
         :param kwargs: Keyword arguments for open().
         '''
-        with self._open_config(name, *args, **kwargs) as file:
+        with self._open_config(*args, **kwargs) as file:
             return json.load(file)
 
-    def load_tokens(self, name, *args, **kwargs):
+    def load_tokens(self, *args, **kwargs):
         '''
         Load tokens list.
-        :param name: Name of the model.
         :param args: Extra arguments for TokenList().
         :param kwargs: Keyword arguments for TokenList().
         '''
-        return TokenList(self._qualify_tokens(name), *args, **kwargs)
+        return TokenList(self._qualify_tokens(), *args, **kwargs)
+
+    def load_model(self, name, *args, **kwargs):
+        '''
+        Load a model.
+        :param name: The model name.
+        :param args: Extra arguments for open().
+        :param kwargs: Keyword arguments for open().
+        :returns: The loaded model.
+        '''
+        with open(self._qualify_model(name), 'rb', *args, **kwargs) as file:
+            return pickle.load(file)
 
     def open_log(self, *args, **kwargs):
         '''
@@ -67,16 +77,6 @@ class FileManager:
         :param kwargs: Keyword arguments for open().
         '''
         return open(self._qualify_log(), 'w', *args, **kwargs)
-
-    def open_model(self, name, *args, **kwargs):
-        '''
-        Open model.
-        :param name: The model name.
-        :param args: Extra arguments for open().
-        :param kwargs: Keyword arguments for open().
-        :returns: An open handle to the model file.
-        '''
-        return open(self._qualify_model(name), FileManager._model_mode, *args, **kwargs)
 
     def open_training(self, name, *args, **kwargs):
         '''
@@ -88,6 +88,26 @@ class FileManager:
         '''
         return TrainingSet(self._qualify_training(name), *args, **kwargs)
 
+    def open_training_raw(self, name, *args, **kwargs):
+        '''
+        Open training set file (raw file handle).
+        :param name: The name of the training set.
+        :param args: Extra arguments for open().
+        :param kwargs: Keyword arguments for open().
+        :returns: An open handle to the training set file.
+        '''
+        return open(self._qualify_training_raw(name), 'r', *args, **kwargs)
+
+    def open_training_pp(self, name, *args, **kwargs):
+        '''
+        Open training set file (preprocessed file handle).
+        :param name: The name of the training set.
+        :param args: Extra arguments for open().
+        :param kwargs: Keyword arguments for open().
+        :returns: An open handle to the training set file.
+        '''
+        return open(self._qualify_training(name), 'w', *args, **kwargs)
+
     def save_model(self, model, name, *args, **kwargs):
         '''
         Save a model.
@@ -95,16 +115,16 @@ class FileManager:
         :param args: Extra arguments for open().
         :param kwargs: Keyword arguments for open().
         '''
-        with open(self._qualify_model(name), FileManager._model_mode, *args, **kwargs) as file:
+        with open(self._qualify_model(name), 'wb', *args, **kwargs) as file:
             pickle.dump(model, file)
 
-    def _open_config(self, name, *args, **kwargs):
+    def _open_config(self, *args, **kwargs):
         '''
         Open configuration file.
         :param args: Extra arguments for open().
         :param kwargs: Keyword arguments for open().
         '''
-        return open(self._qualify_config(name), *args, **kwargs)
+        return open(self._qualify_config(), *args, **kwargs)
 
     def _qualify_training(self, name):
         '''
@@ -112,23 +132,29 @@ class FileManager:
         '''
         return self._qualify(name, FileManager._training_name)
 
+    def _qualify_training_raw(self, name):
+        '''
+        Get the qualified filename of a training set.
+        '''
+        return self._qualify(name, FileManager._training_raw_name)
+
     def _qualify_model(self, name):
         '''
         Get the qualified filename of a model.
         '''
         return self._qualify(name, FileManager._model_name)
 
-    def _qualify_config(self, name):
+    def _qualify_config(self):
         '''
         Get the qualified filename of a configuration file.
         '''
-        return self._qualify(name, FileManager._config_name)
+        return self._qualify(FileManager._config_name)
 
-    def _qualify_tokens(self, name):
+    def _qualify_tokens(self):
         '''
         Get the qualified name of a token list.
         '''
-        return self._qualify(name, FileManager._tokens_name)
+        return self._qualify(FileManager._tokens_name)
 
     def _qualify_log(self):
         '''
@@ -142,9 +168,10 @@ class FileManager:
         '''
         return os.path.join(self._data_dir, *args)
 
-    _model_mode      = 'r'              # Model open() mode.
-    _log_name        = 'mldisasm.log'   # Log filename.
-    _config_name     = 'config.json'    # Config filename.
-    _model_name      = 'model.pkl'      # Model filename.
-    _training_name   = 'training.csv'   # Training set filename.
-    _tokens_name     = 'tokens.list'    # Token list filena,e.
+    _model_mode        = 'rb'               # Model open() mode.
+    _log_name          = 'mldisasm.log'    # Log filename.
+    _config_name       = 'config.json'     # Config filename.
+    _model_name        = 'model.pkl'       # Model filename.
+    _training_name     = 'training.json'   # Preprocessed training set filename.
+    _training_raw_name = 'rawtraining.csv' # Raw training set filename.
+    _tokens_name       = 'tokens.list'     # Token list filena,e.

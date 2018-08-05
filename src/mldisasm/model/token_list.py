@@ -18,7 +18,6 @@ class TokenList:
         Initialise TokenList.
         :param file: A filename or a handle to a readable file.
         '''
-        p = prof('Loaded tokens')
         if isinstance(file, str):
             file = open(file, 'r')
         if not hasattr(file, 'readable') or not file.readable():
@@ -30,13 +29,7 @@ class TokenList:
         log.debug('Read {} unique tokens'.format(len(tokens)))
         self._tokens = sorted(tokens)
         # Convert to tensor. We store the tensor separately which wastes a little memory, but not much.
-        self.as_tensor = tf.convert_to_tensor(self._tokens)
-
-    def __len__(self):
-        '''
-        Get the number of tokens in the list.
-        '''
-        return len(self._tokens)
+        self.as_tensor = tf.convert_to_tensor(self._tokens, dtype=tf.string)
 
     def index(self, token):
         '''
@@ -51,8 +44,63 @@ class TokenList:
             log.debug(self._tokens)
             raise e from None
 
+    def tokenize(self, string):
+        '''
+        Tokenise a string.
+        :param string: The string to tokenise.
+        :returns: A list of the tokens in order of appearance.
+        '''
+        tokens = []
+        # Find tokens by longest match. This breaks when valid tokens pasted together form another valid token, e.g.
+        # "add" and "subps" form "addsubps" which is also a valid token. This would only be a problem if the network
+        # generates two instructions in a row, which should be taken care of during training.
+        i = len(string)
+        while i >= 0:
+            j = 0
+            while j < i:
+                if string[j:i] in self._tokens:
+                    tokens.append(string[j:i])
+                    i = j + 1
+                    break
+                j += 1
+            i -= 1
+        return reversed(tokens)
+
+    def to_list(self):
+        '''
+        Return a list of the tokens. The returned list is newly allocated.
+        '''
+        return list(self._tokens)
+
+    def __len__(self):
+        '''
+        Get the number of tokens in the list.
+        '''
+        return len(self._tokens)
+
+    def __iter__(self):
+        return TokenList._Iterator(self)
+
     def __getitem__(self, index):
         '''
         Retrieve an item by index.
         '''
         return self._tokens[index]
+
+    class _Iterator:
+        def __init__(self, tokens):
+            self._tokens = tokens
+            self._index  = 0
+
+        def __len__(self):
+            return len(self._tokens)
+
+        def __iter__(self):
+            return self
+
+        def __next__(self):
+            if self._index >= len(self._tokens):
+                raise StopIteration
+            t = self._tokens[self._index]
+            self._index += 1
+            return t

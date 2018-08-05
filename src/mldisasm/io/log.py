@@ -84,6 +84,7 @@ def init(file, stream=STREAM, fmt=FORMAT, level=LEVEL):
     '''
     Initialise logging subsystem.
     '''
+    global debug, info, warning, error, critical
     if _HAVE_COLORAMA:
         colorama.init()
     logger  = LOGGER
@@ -91,10 +92,20 @@ def init(file, stream=STREAM, fmt=FORMAT, level=LEVEL):
     handler = TeeHandler(file, stream, fmt, level)
     logger.handlers = []
     logger.addHandler(handler)
+    debug    = logging.debug
+    info     = logging.info
+    warning  = logging.warning
+    error    = logging.error
+    critical = logging.critical
+
+# Callable which does nothing.
+class _NullCallable:
+    def __call__(self, *args, **kwargs):
+        return
 
 # Aliases for logging functions.
-debug    = logging.debug
-info     = logging.info
-warning  = logging.warning
-error    = logging.error
-critical = logging.critical
+debug    = _NullCallable()
+info     = _NullCallable()
+warning  = _NullCallable()
+error    = _NullCallable()
+critical = _NullCallable()

@@ -4,14 +4,13 @@
 MLDisasm training set.
 '''
 
+import json
 import threading
 import time
 
 import tensorflow as tf
 
-
-from   mldisasm.benchmarks.profiling import prof
-from   mldisasm.io.codec             import BYTEORDER
+from mldisasm.benchmarks.profiling import prof
 import mldisasm.io.log as log
 
 # Training set delimiter.
@@ -19,9 +18,6 @@ DELIMITER = '|'
 
 # Training set encoding.
 ENCODING = 'ascii'
-
-# Delimiter decoded to bytes.
-DELIMITER_BYTES = bytes(DELIMITER, ENCODING)
 
 # Every two hex chars represent one byte.
 CHARS_PER_BYTE = 2
@@ -31,26 +27,23 @@ class TrainingSet:
     Allows iterating over training set data.
     '''
 
-    def __init__(self, file, batch_size, x_encoder, y_encoder):
+    def __init__(self, file, batch_size,  seq_len):
         '''
         Initialise TrainingSet.
         :param file: A path or handle to the file containing the training set.
         :param batch_size: Size of a batch of training examples. If this is not a clean divisor of the total training
         set size, the last batch will be smaller than the others.
-        :param x_encoder: A callable which encodes the input bytes into a tensor. Default is to use one-hot encoding.
-        :param y_encoder: A callable which encodes the target string into a tensor. Default is to use one-hot encoding.
+        :param seq_len: The sequence length.
         '''
+        profiler = prof('Opened training set')
         if batch_size < 1:
             batch_size = 1
         if isinstance(file, str):
             file = open(file, 'r')
-        p = prof('Opened training set')
         self._file        = file
-        self._num_records = len([_ for _ in self._file])
         self._file.seek(0)
         self._batch_size  = batch_size
-        self._x_encoder   = x_encoder
-        self._y_encoder   = y_encoder
+        self._seq_len     = seq_len
         self._record_num  = 1
         self._worker      = TrainingSet.Worker(self._file, self._batch_size)
         self._worker.start()
@@ -60,19 +53,6 @@ class TrainingSet:
         Stop worker thread before destroying object.
         '''
         self._worker.join()
-
-    def __len__(self):
-        '''
-        Get the number of records in the training set.
-        '''
-        return self._num_records
-
-    @property
-    def num_batches(self):
-        '''
-        Get the number of batches in the training set.
-        '''
-        return int(self._num_records/self._batch_size)
 
     def __iter__(self):
         '''
@@ -84,39 +64,21 @@ class TrainingSet:
     def __next__(self):
         '''
         Get the next batch of records. Blocks until the batch is available.
-        :returns: A tuple of (example,targets)
+        :returns: A tuple of (examples,targets)
         '''
-        p         = prof('Processed batch')
-        batch     = next(self._worker)
+        profiler  = prof('Processed batch')
+        batch     = next(self._worker) # This can raise StopIteration; if so, we let the caller catch it.
         batch_len = len(batch)
         examples  = [None]*batch_len
         targets   = [None]*batch_len
         for i in range(batch_len):
-            record = batch[i][:-1] # Cut off the newline.
-            elems  = record.split(DELIMITER)
-            if len(elems) != 2:
-                raise ValueError('training:{}: Bad training example: {}'.format(self._record_num, batch[i]))
-            try:
-                # Append encoded tensors.
-                target       = elems[1]
-                opcode       = int(elems[0], 16)
-                opcode_len   = int(0.5 + len(elems[0])/CHARS_PER_BYTE)
-                opcode_bytes = opcode.to_bytes(opcode_len, BYTEORDER)
-                examples[i]  = self._x_encoder.encode(opcode_bytes)
-                targets[i]   = self._y_encoder.encode(target)
-                self._record_num += 1
-            except ValueError as e:
-                # Re-raise the exception with a better message. 'raise ... from None' tells Python not to produce output
-                # like 'while handling ValueError, another exception occurred'.
-                raise ValueError('training:{}: {}: {}'.format(
-                    self._record_num,
-                    record,
-                    str(e)
-                )) from None
-        # Convert into tensors with fixed shape.
+            assert batch[i] is not None
+            assert len(batch[i]) == 2
+            examples[i] = batch[i][0]
+            targets[i]  = batch[i][1]
         return (
-            tf.reshape(tf.stack(examples), (batch_len, examples[0].shape[0], 1)),
-            tf.reshape(tf.stack(targets),  (batch_len, targets[0].shape[0],  1))
+            tf.reshape(tf.convert_to_tensor(examples), (batch_len,self._seq_len,1)),
+            tf.reshape(tf.convert_to_tensor(targets),  (batch_len,self._seq_len,1))
         )
 
     class Worker(threading.Thread):
@@ -154,6 +116,10 @@ class TrainingSet:
             Run the thread's main loop.
             '''
             while self._active:
+                # Wait until the current batch is used.
+                while self._active and self._batch_ready:
+                    time.sleep(0)
+                # Try to load a new batch.
                 try:
                     self.load_batch()
                 except StopIteration:
@@ -172,18 +138,18 @@ class TrainingSet:
             :raises StopIteration: If there are no more examples to load. There may still be some saved in the batch.
             '''
             with self._lock:
-                num_records = len(self._records)
-                num_to_load = num_records - self._index
-                if num_to_load > 0:
-                    p = prof('Loaded {} records', num_to_load)
-                    while self._index < len(self._records):
-                        record = self._file.readline()
-                        if not record:
-                            raise StopIteration
-                        self._records[self._index] = record
+                if self._index < self._batch_size:
+                    profiler = prof('Loaded {} records', lambda: self._index)
+                    while self._index < self._batch_size:
+                        record = self._file.readline() #next(self._file) # StopIteration raised here is caught in run().
+                        self._records[self._index] = json.loads(record)
                         self._index += 1
+                    if self._index < self._batch_size:
+                        # Don't iterate any more if we hit EOF before finishing the batch.
+                        self._active = False
                     self._batch_ready = True
-                    del p
+            print(self._index)
+
         def __iter__(self):
             '''
             Get an iterator to the worker.
@@ -201,9 +167,12 @@ class TrainingSet:
             # Block until a batch is loaded.
             while not self._batch_ready:
                 time.sleep(0)
-            records = []
+            print(self._index)
+            # Copy the batch and return it.
             with self._lock:
+                assert self._index > 0
+                records = list(self._records[:self._index])
+                assert len(records) > 0
                 self._index = 0
                 self._batch_ready = False
-                records = list(self._records)
-            return records
+                return records

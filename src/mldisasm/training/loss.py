@@ -13,16 +13,17 @@ import mldisasm.io.log as log
 
 def _levenshtein(s1, s2):
     '''
-    Compute the Levenshstein distance between two string tensors.
+    Compute the Levenshstein distance between two strings.
     '''
-    p = prof('Computed Levenshtein distance')
+    profiler = prof('Computed Levenshtein distance')
     # Check for empty strings. If either string is empty, the LD is the length of the other string.
-    s1_len = s1.shape[0]
-    s2_len = s2.shape[0]
+    s1_len = len(s1)
+    s2_len = len(s2)
     if s1_len == 0:
         return s2_len
     if s2_len == 0:
         return s1_len
+    # Ensure s2 is the longer string.
     if s1_len > s2_len:
         s3     = s2
         s3_len = s2_len
@@ -48,7 +49,7 @@ def _levenshtein(s1, s2):
                     matrix[i - 1, j]     + 1,
                     matrix[i - 1, j - 1] + 1
                 )
-    # Last values in the matrix are the edit distance.
+    # Last value in the matrix is the edit distance.
     return matrix[-1, -1]
 
 def levenshtein_loss(decoder, target, pred):
@@ -61,17 +62,17 @@ def levenshtein_loss(decoder, target, pred):
     :returns: The Levenshtein Distance between the two strings.
     '''
     assert decoder is not None
+    print(target, pred)
     shape  = target.shape
     ndim   = len(shape)
     pred   = tf.cast(tf.reshape(pred, shape), tf.int32)
     if ndim < 2:
         raise ValueError('Expected two or more dimensions, got {}'.format(ndim))
-    if ndim > 2:
-        return tf.map_fn(
-            lambda y: _levenshtein(decoder.decode(y[0]), decoder.decode(y[0])),
-            tf.stack([pred, target], axis=1)
-        )
-    return _levenshtein(decoder.decode(pred), decoder.decode(target))
+    pred = tf.cast(tf.round(pred), tf.int32)
+    return tf.Variable(_levenshtein(
+        decoder.decode(pred),
+        decoder.decode(target)
+    ))
 
 # Known loss functions, indexed by name.
 LOSS_FUNCTIONS = {

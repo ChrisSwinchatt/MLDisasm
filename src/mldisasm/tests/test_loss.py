@@ -9,8 +9,7 @@ import numpy as np
 from mldisasm.tests.common  import *
 from mldisasm.training.loss import _levenshtein
 
-TEST_ITERATIONS   = 300
-ASCII_MAX         = 0x7F
+ASCII_MAX = 0x7F
 
 def random_index(max_idx, not_in=None):
     '''

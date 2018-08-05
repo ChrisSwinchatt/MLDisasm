@@ -15,18 +15,6 @@ import mldisasm.io.log as log
 # Maximum value of a byte.
 BYTE_MAX  = 0xFF
 
-# Maximum value of an ASCII character.
-ASCII_MAX = 0x7F
-
-# Size of an input vector (one-hot).
-INPUT_SIZE = BYTE_MAX + 1
-
-# Size of a target vector (one-hot).
-TARGET_SIZE = ASCII_MAX + 1
-
-# Data byte-order.
-BYTEORDER = 'little'
-
 class Codec(metaclass=ABCMeta):
     '''
     Coder/decoder.
@@ -41,42 +29,9 @@ class Codec(metaclass=ABCMeta):
     @abstractmethod
     def decode(self, tensor):
         '''
-        Decode a one-hot tensor of length 'seq_len'.
+        Decode a sequence of length 'seq_len'.
         '''
         raise NotImplementedError
-
-def _tokenize(string):
-    '''
-    Tokenise an assembly string. Tokens are: punctuation, digits (such that the number 100 has three tokens, 1, 0 and 0)
-    and identifiers (one or more alphabetic characters bounded by a non-alphabetic character or end of the string on
-    either side).
-    :returns: An ordered list of the tokens found in the string.
-    '''
-    tokens = []
-    ident  = ''     # Identifier buffer.
-    prefix = False  # Numeric prefix flag.
-    for i, char in enumerate(string):
-        # Skip x in hexadecimal prefix.
-        if prefix and char.lower() == 'x':
-            continue
-        # Add alphabetic characters to ident buffer.
-        if char.isalpha() and not prefix:
-            ident += char
-            continue
-        # Set prefix flag if current char is 0 and next char is x.
-        if not prefix and char == '0' and i + 1 < len(string) and string[i + 1].lower() == 'x':
-            prefix = True
-            tokens.append('0x')
-            continue
-        if ident:
-            tokens.append(ident)
-            ident = ''
-        tokens.append(char)
-        if not char.isalnum():
-            prefix = False
-    if ident:
-        tokens.append(ident)
-    return tokens
 
 class AsciiCodec(Codec):
     '''
@@ -86,11 +41,12 @@ class AsciiCodec(Codec):
         self.seq_len = seq_len
         self.tokens  = tokens
 
-    def encode(self, seq):
+    def encode(self, seq, as_tensor=True):
         '''
         Encodes the contents of an ASCII string as a vector of token indices.
         :param s: The ASCII string.
         :param checked: Set to True if the input has already been checked for validity.
+        :param as_tensor: Whether to encode to a tensor or return a list.
         :returns: A tensor with one element per token in the string.
         '''
         # Check parameter.
@@ -99,35 +55,40 @@ class AsciiCodec(Codec):
         if not seq:
             raise ValueError('Received empty string')
         # Tokenise the string and convert to TokenList indices.
-        tokens  = _tokenize(seq)
+        tokens  = self.tokens.tokenize(seq)
         indices = [[self.tokens.index(t)] for t in tokens]
         # Pad to seq_len and convert to tensor.
         while len(indices) < self.seq_len:
             indices.append([-1])
-        return tf.convert_to_tensor(indices)
+        if as_tensor:
+            return tf.convert_to_tensor(indices, dtype=tf.int64)
+        return indices
 
-    def decode(self, tensor):
+    def decode(self, indices):
         '''
-        Decode a tensor of token indexes into an ASCII string tensor.
-        :param tensor: The encoded tensor.
+        Decode a tensor of token indices into an ASCII string tensor.
+        :param indices: The token indices.
         :returns: An ASCII string tensor.
         '''
         # Check parameters.
-        ndim = len(tensor.shape)
+        if not isinstance(indices, tf.Tensor):
+            raise TypeError('Expected Tensor, not {}'.format(type(indices).__name__))
+        ndim = len(indices.shape)
         if ndim > 1:
-            # Recursively map over nD tensor until n=1.
-            return tf.map_fn(self.decode, tensor)
-        if not isinstance(tensor, tf.Tensor):
-            raise TypeError('Expected Tensor, not {}'.format(type(tensor).__name__))
-        t = tf.map_fn(
-            lambda idx: tf.cond(
-                idx >= 0,
-                true_fn  = lambda: self.tokens.as_tensor[idx],
-                false_fn = lambda: tf.convert_to_tensor('')
-            ),
-            tensor
-        )
-        return tf.reduce_join(tf.as_string(t))
+            # Recursively map and reduce over nD tensor until n=1.
+            return tf.reduce_join(tf.map_fn(self.decode, indices, dtype=tf.string))
+        # Convert indices into tokens and join into a single string. This has to be done on the CPU as there is no GPU
+        # kernel for string ops.
+        with tf.device('/cpu:0'):
+            return tf.reduce_join(tf.map_fn(
+                lambda idx: tf.cond(
+                    idx >= 0,
+                    true_fn  = lambda: self.tokens.as_tensor[idx],
+                    false_fn = lambda: tf.convert_to_tensor('')
+                ),
+                indices,
+                dtype=tf.string
+            ))
 
 class BytesCodec(Codec):
     '''
@@ -140,9 +101,12 @@ class BytesCodec(Codec):
         '''
         self.seq_len = seq_len
 
-    def encode(self, bs):
+    def encode(self, bs, as_tensor=True):
         '''
-        Encode a bytes object as a one-hot tensor.
+        Encode a bytes object as a tensor of float values.
+        :param bs: The bytes.
+        :param as_tensor: Whether to return a tensor (True) or a list (False).
+        :returns: A tensor or list of float values.
         '''
         if not isinstance(bs, bytes):
             raise TypeError('Expected bytes, not {}'.format(type(bs).__name__))
@@ -152,10 +116,19 @@ class BytesCodec(Codec):
         xs = [[float(byte)/BYTE_MAX] for byte in bs]
         while len(xs) < self.seq_len:
             xs.append([np.inf])
-        return tf.convert_to_tensor(xs)
+        if as_tensor:
+            return tf.convert_to_tensor(xs)
+        return xs
 
     def decode(self, tensor):
         '''
-        Decode a one-hot tensor into bytes. Not implemented.
+        Decode a float tensor into a bytes object.
         '''
-        raise NotImplementedError
+        if not isinstance(tensor, tf.Tensor):
+            raise TypeError('Expected Tensor, not {}'.format(type(tensor).__name__))
+        # Convert float tensor into array of bytes.
+        xs = (tensor*BYTE_MAX).eval()
+        # Filter out infinity values.
+        xs = filter(lambda x: x != np.inf, xs)
+        # Convert to bytes.
+        return bytes(map(int, xs))
