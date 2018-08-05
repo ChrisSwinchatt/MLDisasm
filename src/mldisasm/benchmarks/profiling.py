@@ -5,6 +5,7 @@ MLDisasm profiling.
 '''
 
 import os
+import sys
 import time
 
 import psutil
@@ -19,7 +20,7 @@ class Profiler:
     Reports time taken or memory used between its initialisation and its destruction (or when the end method is called,
     whichever comes first).
     '''
-    def __init__(self, start_msg, end_msg, *args):
+    def __init__(self, start_msg, end_msg, *args, use_log=True):
         '''
         Initialise Profiler.
         :param start_msg: A message to print upon starting. If None or empty, nothing is printed.
@@ -27,18 +28,21 @@ class Profiler:
         True, a default message containing the amount of time and/or memory used is printed.
         :param args: Extra format arguments for end_msg.
         '''
-        if start_msg:
-            log.debug(start_msg)
+        # Save params and initialise attributes.
         if not end_msg:
             end_msg = 'Operation finished'
         self.args       = args
         self.end_msg    = end_msg
+        self._use_log   = use_log
         self.start_time = time.time()
         self.end_time   = 0
         self.process    = psutil.Process(os.getpid())
         self.start_mem  = self.process.memory_info()
         self.end_mem    = None
         self.ended      = False
+        # Print start message if any.
+        if start_msg:
+            self._print(start_msg)
 
     def __del__(self):
         '''
@@ -69,25 +73,33 @@ class Profiler:
         '''
         self.end_time = time.time()
         self.end_mem  = self.process.memory_info()
-        msg  = self.end_msg
-        args = self.args
+        msg   = self.end_msg
+        args  = self.args
+        alloc = self.allocated
         if PROF_TIME:
             msg += ' in {} seconds'
             args = (*args, self.elapsed)
         if PROF_MEM:
-            if self.allocated >= 0:
+            if alloc >= 0:
                 msg += ', allocated {} bytes'
             else:
+                alloc = -alloc
                 msg += ', freed {} bytes'
             args = (*args, self.allocated)
-        log.debug(msg.format(*args))
+        self._print(msg.format(*args))
         self.ended = True
 
-def prof(end_msg, *args, start_msg=None):
+    def _print(self, msg):
+        if self._use_log:
+            log.debug(msg)
+        else:
+            print(msg, file=sys.stderr)
+
+def prof(end_msg, *args, start_msg=None, **kwargs):
     '''
     Create a profiler which reports when it goes out of scope or you call its "end" method.
     '''
-    return Profiler(start_msg, end_msg, *args)
+    return Profiler(start_msg, end_msg, *args, **kwargs)
 
 def init(prof_time=True, prof_mem=True):
     '''
