@@ -80,4 +80,4 @@ function gen_file_list {
 
 [[ ! -f "${file_list}" ]] && ( gen_file_list >"${file_list}" )
 
-cat "${file_list}" | "${gen_train_set}" "${disasm}" <"${file_list}" | sort -u | tee "${training_file}" | "${tokenize}" >"${token_file}"
+cat "${file_list}" | "${gen_train_set}" "${disasm}" <"${file_list}" | sort -u | tee "${training_file}" 
