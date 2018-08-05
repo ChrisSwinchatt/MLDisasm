@@ -95,7 +95,6 @@ def test_levenshtein():
     s1 = random_string()
     enter_test(test_levenshtein)
     for _ in range(TEST_ITERATIONS):
-        enter_test_iter()
         # Test substitution.
         s2, delta1_2 = random_subs(s1)
         assert delta1_2 == _levenshtein(s1, s2)
@@ -105,4 +104,5 @@ def test_levenshtein():
         # Test deletion.
         s4, delta3_4 = random_delete(s3)
         assert delta3_4 == _levenshtein(s3, s4)
+        leave_test_iter()
     leave_test()
