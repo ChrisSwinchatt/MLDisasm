@@ -141,14 +141,15 @@ class TrainingSet:
                 if self._index < self._batch_size:
                     profiler = prof('Loaded {} records', lambda: self._index)
                     while self._index < self._batch_size:
-                        record = self._file.readline() #next(self._file) # StopIteration raised here is caught in run().
+                        record = self._file.readline()
+                        if not record:
+                            raise StopIteration
                         self._records[self._index] = json.loads(record)
                         self._index += 1
                     if self._index < self._batch_size:
                         # Don't iterate any more if we hit EOF before finishing the batch.
                         self._active = False
                     self._batch_ready = True
-            print(self._index)
 
         def __iter__(self):
             '''
@@ -167,7 +168,6 @@ class TrainingSet:
             # Block until a batch is loaded.
             while not self._batch_ready:
                 time.sleep(0)
-            print(self._index)
             # Copy the batch and return it.
             with self._lock:
                 assert self._index > 0
