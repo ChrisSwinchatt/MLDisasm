@@ -46,13 +46,6 @@ class Profiler:
         if start_msg:
             self._print(start_msg)
 
-    def __del__(self):
-        '''
-        Destroy the profiler and print the message if it hasn't been printed already.
-        '''
-        if not self.ended:
-            self.end()
-
     @property
     def elapsed(self):
         '''
@@ -68,10 +61,23 @@ class Profiler:
         assert self.end_mem is not None
         return self.end_mem.rss - self.start_mem.rss
 
+    def __enter__(self):
+        '''
+        Enter context.
+        '''
+        pass
+
+    def __exit__(self, exc_type, exc_value, exc_tb):
+        '''
+        Leave context.
+        '''
+        if not self.ended:
+            self.end()
+
     def end(self):
         '''
         Print the message and profiling info. The start time and memory usage are reset so that successive calls to end
-        print new information. However, after this function is called, deleting the instance will not print the new
+        print updated information. However, after this function is called, leaving the context will not print the new
         message. To re-enable this behaviour, set the "ended" attribute to False.
         '''
         # Get the new end time & memory usage.

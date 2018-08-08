@@ -18,18 +18,18 @@ class TokenList:
         Initialise TokenList.
         :param file: A filename or a handle to a readable file.
         '''
-        if isinstance(file, str):
-            file = open(file, 'r')
-        if not hasattr(file, 'readable') or not file.readable():
-            raise TypeError('Expected string or readable file for arg 0, not {}'.format(type(file).__name__))
-        # Read the tokens.
         tokens = set()
-        for line in file:
-            tokens.add(line[:-1]) # Cut off the newline.
-        log.debug('Read {} unique tokens'.format(len(tokens)))
-        self._tokens = sorted(tokens)
-        # Convert to tensor. We store the tensor separately which wastes a little memory, but not much.
-        self.as_tensor = tf.convert_to_tensor(self._tokens, dtype=tf.string)
+        with prof('Read {} unique tokens', lambda: len(tokens)):
+            if isinstance(file, str):
+                file = open(file, 'r')
+            if not hasattr(file, 'readable') or not file.readable():
+                raise TypeError('Expected string or readable file for arg 0, not {}'.format(type(file).__name__))
+            # Read the tokens.
+            for line in file:
+                tokens.add(line[:-1]) # Remove trailing newline.
+            self._tokens = sorted(tokens)
+            # Convert to tensor. We store the tensor separately which wastes a little memory, but not much.
+            self.as_tensor = tf.convert_to_tensor(self._tokens, dtype=tf.string)
 
     def index(self, token):
         '''
