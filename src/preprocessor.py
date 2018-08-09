@@ -10,13 +10,10 @@ import multiprocessing as mp
 import json
 import sys
 
-from tensorflow.keras.utils import to_categorical
-
-from   mldisasm.benchmarks.profiling import prof
-from   mldisasm.io.codec             import AsciiCodec, BytesCodec
-from   mldisasm.io.file_manager      import FileManager
-import mldisasm.io.log               as     log
-from   mldisasm.io.training_set      import DELIMITER, CHARS_PER_BYTE
+from   mldisasm.io.codec        import AsciiCodec, BytesCodec
+from   mldisasm.io.file_manager import FileManager
+import mldisasm.io.log          as     log
+from   mldisasm.io.training_set import DELIMITER, CHARS_PER_BYTE
 
 REPORT_STEP = 10000
 
@@ -41,8 +38,7 @@ def pp_encode(record, tokens, x_codec, y_codec):
     inputs       = x_codec.encode(opcode_bytes, as_tensor=False)
     # Encode target indices as one-hot vectors.
     targets  = y_codec.encode(target, as_tensor=False)
-    one_hots = list(map(lambda y: to_categorical(y, num_classes=len(tokens)).tolist(), targets))
-    return json.dumps([inputs,one_hots])
+    return json.dumps([inputs,targets])
 
 if __name__ == '__main__':
     if len(sys.argv) != 2:
@@ -63,10 +59,7 @@ if __name__ == '__main__':
     # worker. Each worker produces a single line of JSON data for each record it's given and the results are stored
     # asynchronously in a list. After queueing all the tasks (one per line of input) we write the results out in the
     # order that they become available.
-    record_num = 1
-    prof_msg   = 'Processed block of {} records (totalling {} so far)'
-    prof_args  = (REPORT_STEP, lambda: record_num)
-    profiler   = prof(prof_msg, *prof_args)
+    record_num = 0
     n_threads  = mp.cpu_count()
     with mp.Pool(processes=n_threads) as pool:
         # Submit tasks and collect asynchronous results.
@@ -84,9 +77,9 @@ if __name__ == '__main__':
                     line = results[i].get()
                     tset_out.write(line)
                     tset_out.write('\n')
+                    if record_num and record_num % REPORT_STEP == 0:
+                        log.info('Processed {} records'.format(record_num))
                     record_num += 1
-                    if record_num % REPORT_STEP == 0:
-                        profiler.end()
                     del results[i] # This invalidates the indices, so we need to loop again from the beginning.
                     break
         pool.join()

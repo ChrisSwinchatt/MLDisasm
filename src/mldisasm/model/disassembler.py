@@ -15,13 +15,13 @@ class Disassembler:
     '''
     Machine learning disassembler.
     '''
-    def __init__(self, hidden_size, decoder=None, **kwargs):
+    def __init__(self, hidden_size, tokens, codec=None, **kwargs):
         '''
         Initialise Disassembler.
         :param hidden_size: How many hidden units to use in each LSTM layer.
-        :param decoder: If passed, decodes target strings during training.
+        :param tokens: The token vocabulary.
+        :param codec: If passed, decodes target strings during training.
         :note: The following optional arguments must be passed as keyword arguments.
-        :param output_size: Dimensionality of output vector. Default is hidden_size.
         :param lstm_layers: How many LSTM layers to use. Default value is 1.
         :param lstm_activation: Name of the LSTM activation function. Default is tanh.
         :param lstm_dropout: Dropout rate between LSTM sequences. Default is 0.
@@ -35,8 +35,9 @@ class Disassembler:
         :param batch_size: Batch size. Default is None (unknown).
         :param seq_len: Sequence length. Default is None (unknown).
         '''
-        # Create sequential model..
-        self.model = keras.Sequential(name='sequential')
+        # Create sequential model.
+        self.tokens = tokens
+        self.model  = keras.Sequential(name='sequential')
         # Append LSTM layers.
         for _ in range(kwargs.get('lstm_layers', 1)):
             self.model.add(keras.layers.LSTM(
@@ -48,10 +49,9 @@ class Disassembler:
                 recurrent_dropout = kwargs.get('lstm_r_dropout',   0.0),
                 return_sequences  = True
             ))
-        output_size = kwargs.get('output_size', hidden_size)
         # Append dense layer.
         self.model.add(keras.layers.Dense(
-            units      = output_size,
+            units      = len(self.tokens),
             activation = kwargs.get('dense_activation', 'sigmoid')
         ))
         # Compile the model with an optimiser and loss function.
@@ -59,7 +59,7 @@ class Disassembler:
         if loss in LOSS_FUNCTIONS:
             loss = functools.partial(
                 LOSS_FUNCTIONS[loss],
-                decoder
+                codec
             )
         self.model.compile(kwargs.get('optimizer', 'SGD'), loss)
 

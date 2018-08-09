@@ -62,12 +62,12 @@ class AsciiCodec(Codec):
             raise TypeError('Expected str, not {}'.format(type(seq).__name__))
         if not seq:
             raise ValueError('Received empty string')
-        # Tokenise the string and convert to TokenList indices.
+        # Tokenise the string and convert TokenList indices to reals between 0 and 1.
         tokens  = self.tokens.tokenize(seq)
-        indices = [[self.tokens.index(t)] for t in tokens]
+        indices = [[float(self.tokens.index(t))/len(self.tokens)] for t in tokens]
         # Pad to seq_len and convert to tensor.
         while len(indices) < self.seq_len:
-            indices.append([-1])
+            indices.append([np.inf])
         if as_tensor:
             return tf.convert_to_tensor(indices, dtype=tf.int64)
         return indices
@@ -81,10 +81,8 @@ class AsciiCodec(Codec):
         # Check parameters.
         if not isinstance(indices, tf.Tensor):
             raise TypeError('Expected Tensor, not {}'.format(type(indices).__name__))
-        #ndim = len(indices.shape)
-        #if ndim > 2:
-        #    # Recursively map and reduce over nD tensor until n=1.
-        #    return tf.reduce_join(tf.map_fn(self.decode, indices, dtype=tf.string), axis=1)
+        # Convert real valued outputs into TokenList indices.
+        indices = tf.cast(tf.round(indices*len(self.tokens)), tf.int32)
         # Convert indices into tokens and join into a string per example in the batch. This has to be done on the CPU as
         # there is no GPU kernel for string ops.
         with tf.device('/cpu:0'):

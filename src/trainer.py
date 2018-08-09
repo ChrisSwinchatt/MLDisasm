@@ -30,7 +30,7 @@ from   mldisasm.model.disassembler   import Disassembler
 
 FEED_DICT = {}
 
-def build_graph(config, y_codec):
+def build_graph(config, tokens, codec):
     '''
     Build model & graph.
     '''
@@ -39,7 +39,8 @@ def build_graph(config, y_codec):
         batch_size = config['batch_size']
         model      = Disassembler(
             **config['model'],
-            decoder    = y_codec,
+            tokens     = tokens,
+            codec      = codec,
             batch_size = batch_size,
             seq_len    = seq_len
         )
@@ -47,14 +48,13 @@ def build_graph(config, y_codec):
         y = tf.placeholder(tf.int32,   (batch_size,seq_len,1), name='y')
         return model, model.train(X, y)
 
-def train_model(config, tset, y_codec):
+def train_model(config, tset, tokens, codec):
     '''
     Train a model.
     '''
     # Create a model and build the execution graph.
-    model, loss = build_graph(config, y_codec)
+    model, loss = build_graph(config, tokens, codec)
     n_epochs    = config['epochs']
-    max_batches = config.get('max_batches', -1)
     total_loss  = 0
     # Run the graph over each example/target pair
     for epoch in range(1, n_epochs + 1):
@@ -69,9 +69,6 @@ def train_model(config, tset, y_codec):
                     feed_dict={'X': X, 'y': y}
                 )
                 batch_num += 1
-                # Stop if we hit max_batches.
-                if max_batches >= 0 and batch_num >= max_batches:
-                    break
 
 def load_datasets(model_name, config, file_mgr):
     '''
@@ -83,7 +80,7 @@ def load_datasets(model_name, config, file_mgr):
         batch_size=config['batch_size'],
         seq_len=config['seq_len']
     )
-    return tset, AsciiCodec(config['seq_len'], tokens)
+    return tset, tokens, AsciiCodec(config['seq_len'], tokens)
 
 def select_device(config):
     '''
@@ -114,8 +111,8 @@ def start_training(model_name, file_mgr):
     # Initialise profiler.
     profiling.init(config['prof_time'], config['prof_mem'])
     # Load datasets and start training.
-    tset, codec = load_datasets(model_name, config, file_mgr)
-    train_model(config, tset, codec)
+    tset, tokens, codec = load_datasets(model_name, config, file_mgr)
+    train_model(config, tset, tokens, codec)
 
 def read_command_line():
     '''

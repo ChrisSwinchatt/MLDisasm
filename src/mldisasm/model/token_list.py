@@ -28,8 +28,7 @@ class TokenList:
             for line in file:
                 tokens.add(line[:-1]) # Remove trailing newline.
             self._tokens = sorted(tokens)
-            # Convert to tensor. We store the tensor separately which wastes a little memory, but not much.
-            self.as_tensor = tf.convert_to_tensor(self._tokens, dtype=tf.string)
+            self._tensor = None
 
     def index(self, token):
         '''
@@ -71,6 +70,17 @@ class TokenList:
         Return a list of the tokens. The returned list is newly allocated.
         '''
         return list(self._tokens)
+
+    @property
+    def as_tensor(self):
+        '''
+        Get the tokens list as a tensor.
+        '''
+        # We only create the tensor the first time it's demanded because preprocessor needs token_list to be
+        # serialisable for multiprocessing, but we don't want to recreate the tensor every time we use it.
+        if self._tensor is None:
+            self._tensor = tf.convert_to_tensor(self._tokens, dtype=tf.string)
+        return self._tensor
 
     def __len__(self):
         '''
