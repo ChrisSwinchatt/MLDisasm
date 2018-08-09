@@ -4,53 +4,12 @@
 MLDisasm loss functions.
 '''
 
-import numpy as np
-
-import tensorflow as tf
+import tensorflow             as     tf
+import tensorflow.keras       as     keras
+from   tensorflow.keras.utils import to_categorical
 
 from   mldisasm.benchmarks.profiling import prof
 import mldisasm.io.log as log
-
-def _levenshtein(s1, s2):
-    '''
-    Compute the Levenshstein distance between two strings.
-    '''
-    profiler = prof('Computed Levenshtein distance')
-    # Check for empty strings. If either string is empty, the LD is the length of the other string.
-    s1_len = len(s1)
-    s2_len = len(s2)
-    if s1_len == 0:
-        return s2_len
-    if s2_len == 0:
-        return s1_len
-    # Ensure s2 is the longer string.
-    if s1_len > s2_len:
-        s3     = s2
-        s3_len = s2_len
-        s2     = s1
-        s2_len = s1_len
-        s1     = s3
-        s1_len = s3_len
-    # Build matrix.
-    matrix = np.zeros((s1_len + 1, s2_len + 1), dtype=int)
-    for i in range(s1_len + 1):
-        matrix[i, 0] = i
-        if i == 0:
-            continue
-        for j in range(s2_len + 1):
-            matrix[0, j] = j
-            if j == 0:
-                continue
-            if s1[i - 1] == s2[j - 1]:
-                matrix[i, j] = matrix[i - 1, j - 1]
-            else:
-                matrix[i, j] = min(
-                    matrix[i,     j - 1] + 1,
-                    matrix[i - 1, j]     + 1,
-                    matrix[i - 1, j - 1] + 1
-                )
-    # Last value in the matrix is the edit distance.
-    return matrix[-1, -1]
 
 def levenshtein_loss(decoder, target, pred):
     '''
@@ -62,19 +21,31 @@ def levenshtein_loss(decoder, target, pred):
     :returns: The Levenshtein Distance between the two strings.
     '''
     assert decoder is not None
-    print(target, pred)
-    shape  = target.shape
-    ndim   = len(shape)
-    pred   = tf.cast(tf.reshape(pred, shape), tf.int32)
-    if ndim < 2:
-        raise ValueError('Expected two or more dimensions, got {}'.format(ndim))
-    pred = tf.cast(tf.round(pred), tf.int32)
-    return tf.Variable(_levenshtein(
-        decoder.decode(pred),
-        decoder.decode(target)
-    ))
+    shape = target.shape
+    pred  = tf.cast(tf.round(tf.reshape(pred, shape)), tf.int32)
+    if shape.ndims < 2:
+        raise ValueError('Expected two or more dimensions, got {}'.format(shape.ndims))
+    # Decode into dense string tensors.
+    pred_dense   = decoder.decode(pred)
+    target_dense = decoder.decode(target)
+    # Decompose into sparse tensors and compute LD.
+    pred_sparse   = tf.string_split(pred_dense,   '')
+    target_sparse = tf.string_split(target_dense, '')
+    t = tf.edit_distance(pred_sparse, target_sparse)
+    t.set_shape(shape[0])
+    return t
+
+def crossentropy_loss(_, target, pred):
+    '''
+    Cross-entropy loss.
+    '''
+    return keras.losses.categorical_crossentropy(
+        to_categorical(target),
+        to_categorical(tf.cast(tf.round(pred), dtype=tf.int32))
+    )
 
 # Known loss functions, indexed by name.
 LOSS_FUNCTIONS = {
-    'levenshtein': levenshtein_loss
+    'levenshtein':  levenshtein_loss,
+    'crossentropy': crossentropy_loss
 }

@@ -88,8 +88,8 @@ class TestTrainingSet:
         '''
         Test TrainingSet.__next__().
         '''
-        enter_test(self.test_next)
         with tf.Session():
+            enter_test(self.test_next)
             tensors_iter = iter(self.tensors)
             for _ in range(TEST_ITERATIONS):
                 # Load a pair of tensors and verify that they contains the same data that we input during setup.
