@@ -6,8 +6,11 @@ MLDisasm training preprocessor. Encode raw training data as JSON.
 Usage: {0} <model name>
 '''
 
+import multiprocessing as mp
 import json
 import sys
+
+from tensorflow.keras.utils import to_categorical
 
 from   mldisasm.benchmarks.profiling import prof
 from   mldisasm.io.codec             import AsciiCodec, BytesCodec
@@ -16,6 +19,30 @@ import mldisasm.io.log               as     log
 from   mldisasm.io.training_set      import DELIMITER, CHARS_PER_BYTE
 
 REPORT_STEP = 10000
+
+def pp_encode(record, tokens, x_codec, y_codec):
+    '''
+    Encode a single record.
+    :param record: The record.
+    :param tokens: The TokenList.
+    :param x_codec: A BytesCodec.
+    :param y_codec: An AsciiCodec.
+    :returns: A JSON encoded tuple of the input vector and a one-hot encoded matrix.
+    '''
+    # Parse record into inputs and targets.
+    elems  = record.split(DELIMITER)
+    if len(elems) != 2:
+        raise ValueError('training:{}: Bad training example: {}'.format(record_num, record))
+    target       = elems[1]
+    # Encode opcode (inputs).
+    opcode       = int(elems[0], 16)
+    opcode_len   = int(0.5 + len(elems[0])/CHARS_PER_BYTE)
+    opcode_bytes = opcode.to_bytes(opcode_len, 'little')
+    inputs       = x_codec.encode(opcode_bytes, as_tensor=False)
+    # Encode target indices as one-hot vectors.
+    targets  = y_codec.encode(target, as_tensor=False)
+    one_hots = list(map(lambda y: to_categorical(y, num_classes=len(tokens)).tolist(), targets))
+    return json.dumps([inputs,one_hots])
 
 if __name__ == '__main__':
     if len(sys.argv) != 2:
@@ -31,27 +58,35 @@ if __name__ == '__main__':
     y_codec  = AsciiCodec(config['seq_len'], tokens)
     tset_in  = file_mgr.open_training_raw(model_name)
     tset_out = file_mgr.open_training_pp(model_name)
-    # Encode training set.
+    # Encode training set. Our strategy here is to read the records into memory one at a time and hand them to one of N
+    # workers (see pp_encode) where N is the number of CPU threads. mp.Pool handles allocating each line of input to a
+    # worker. Each worker produces a single line of JSON data for each record it's given and the results are stored
+    # asynchronously in a list. After queueing all the tasks (one per line of input) we write the results out in the
+    # order that they become available.
     record_num = 1
-    log.info('Processing training file')
-    profiler = prof('Processed {} records', REPORT_STEP, use_log=False)
-    for record in tset_in:
-        # Parse record into inputs and targets.
-        record = record[:-1] # Cut off the newline.
-        elems  = record.split(DELIMITER)
-        if len(elems) != 2:
-            raise ValueError('training:{}: Bad training example: {}'.format(record_num, record))
-        target       = elems[1]
-        opcode       = int(elems[0], 16)
-        opcode_len   = int(0.5 + len(elems[0])/CHARS_PER_BYTE)
-        opcode_bytes = opcode.to_bytes(opcode_len, 'little')
-        inputs       = x_codec.encode(opcode_bytes, as_tensor=False)
-        targets      = y_codec.encode(target, as_tensor=False)
-        # Save to JSON file with a pair per line.
-        json.dump((inputs,targets), tset_out)
-        tset_out.write('\n')
-        # Report progress.
-        record_num += 1
-        if record_num % REPORT_STEP == 0:
-            profiler.end()
-            profiler = prof('Processed {} records ({} total)', REPORT_STEP, record_num, use_log=False)
+    prof_msg   = 'Processed block of {} records (totalling {} so far)'
+    prof_args  = (REPORT_STEP, lambda: record_num)
+    profiler   = prof(prof_msg, *prof_args)
+    n_threads  = mp.cpu_count()
+    with mp.Pool(processes=n_threads) as pool:
+        # Submit tasks and collect asynchronous results.
+        log.info('Processing training file (spawning {} workers)'.format(n_threads))
+        results = []
+        for record in tset_in:
+            record = record[:-1] # Remove trailing newline.
+            results.append(pool.apply_async(pp_encode, (record, tokens, x_codec, y_codec)))
+        pool.close()
+        # Write the results of each task out to the file as they become available.
+        log.info('Waiting for results to become available')
+        while results:
+            for i in range(len(results)):
+                if results[i].ready():
+                    line = results[i].get()
+                    tset_out.write(line)
+                    tset_out.write('\n')
+                    record_num += 1
+                    if record_num % REPORT_STEP == 0:
+                        profiler.end()
+                    del results[i] # This invalidates the indices, so we need to loop again from the beginning.
+                    break
+        pool.join()
