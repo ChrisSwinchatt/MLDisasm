@@ -8,9 +8,8 @@ import functools
 
 import tensorflow.keras as keras
 
-from   mldisasm.benchmarks.profiling import prof
-import mldisasm.io.log               as     log
-from   mldisasm.training.loss        import LOSS_FUNCTIONS
+import mldisasm.io.log        as     log
+from   mldisasm.training.loss import LOSS_FUNCTIONS
 
 class Disassembler:
     '''
@@ -38,7 +37,7 @@ class Disassembler:
         '''
         # Create sequential model..
         self.model = keras.Sequential(name='sequential')
-        # Add LSTM layers.
+        # Append LSTM layers.
         for _ in range(kwargs.get('lstm_layers', 1)):
             self.model.add(keras.layers.LSTM(
                 units             = hidden_size,
@@ -50,7 +49,7 @@ class Disassembler:
                 return_sequences  = True
             ))
         output_size = kwargs.get('output_size', hidden_size)
-        # Add dense layer.
+        # Append dense layer.
         self.model.add(keras.layers.Dense(
             units      = output_size,
             activation = kwargs.get('dense_activation', 'sigmoid')
@@ -71,8 +70,7 @@ class Disassembler:
         :param targets: A tensor of one-hot encoded strings.
         :returns: The training history, see tensorflow.keras.Model.fit().
         '''
-        profiler = prof('Trained batch of {}'.format(inputs.shape[0]))
-        self._validate_training_inputs(inputs, targets)
+        _validate_training_inputs(inputs, targets)
         return self.model.fit(inputs, targets, steps_per_epoch=inputs.shape[0])
 
     def disassemble(self, inputs):
@@ -82,20 +80,17 @@ class Disassembler:
         '''
         self.model(inputs)
 
-    def _validate_training_inputs(self, inputs, targets):
-        shape_in  = inputs.shape
-        dim_in    = len(shape_in)
-        shape_out = targets.shape
-        dim_out   = len(shape_out)
-        if dim_in != 3:
-            raise ValueError('Incorrect dimensionality {} of input tensor (wanted 3)'.format(dim_in))
-        if dim_in != 3:
-            raise ValueError('Incorrect dimensionality {} of target tensor (wanted 3)'.format(dim_out))
-        if shape_in[0] != shape_out[0]:
-            raise ValueError('Dimension 0 (batch size) of inputs and targets must match (got {} and {})'.format(
-                shape_in[0],
-                shape_out[0]
-            ))
-
     def __str__(self):
         return self.model.summary()
+
+def _validate_training_inputs(inputs, targets):
+    '''
+    Validate shape of training inputs/targets.
+    '''
+    if inputs.shape.ndims != 3:
+        raise ValueError('Incorrect dimensionality {} of input tensor (wanted 3)'.format(inputs.shape.ndims))
+    if inputs.shape != targets.shape:
+        raise ValueError('Dimension 0 (batch size) of inputs and targets must match (got {} and {})'.format(
+            inputs.shape,
+            targets.shape
+        ))
