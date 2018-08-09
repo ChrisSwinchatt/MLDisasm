@@ -35,18 +35,19 @@ class TrainingSet:
         set size, the last batch will be smaller than the others.
         :param seq_len: The sequence length.
         '''
-        profiler = prof('Opened training set')
-        if batch_size < 1:
-            batch_size = 1
-        if isinstance(file, str):
-            file = open(file, 'r')
-        self._file        = file
-        self._file.seek(0)
-        self._batch_size  = batch_size
-        self._seq_len     = seq_len
-        self._record_num  = 1
-        self._worker      = TrainingSet.Worker(self._file, self._batch_size)
-        self._worker.start()
+        with prof('Opened training set'):
+            if batch_size < 1:
+                batch_size = 1
+            if isinstance(file, str):
+                file = open(file, 'r')
+            self._file        = file
+            self._file.seek(0)
+            self._batch_size  = batch_size
+            self._seq_len     = seq_len
+            self._record_num  = 1
+            self._iter_flag   = False
+            self._worker      = TrainingSet.Worker(self._file, self._batch_size)
+            self._worker.start()
 
     def __del__(self):
         '''
@@ -58,7 +59,12 @@ class TrainingSet:
         '''
         Get an iterator to the training set.
         '''
-        self._worker.restart()
+        # Don't restart the worker on the first call to __iter__. Usually a batch has already been loaded and calling
+        # restart() discards it and loads it again. If we have called __iter__ before, then we do want to discard loaded
+        # batches and start iterating from the beginning.
+        if self._iter_flag:
+            self._worker.restart()
+        self._iter_flag = True
         return self
 
     def __next__(self):
@@ -102,14 +108,22 @@ class TrainingSet:
             self._index       = 0
             self._batch_ready = False
 
+        @property
+        def active(self):
+            '''
+            Indicate whether the worker is active or has finished processing the file.
+            '''
+            return self._active
+
         def restart(self):
             '''
             Restart the thread and begin reading from the beginning of the file.
             '''
             with self._lock:
                 self._file.seek(0)
-                self._index  = 0
-                self._active = True
+                self._active      = True
+                self._batch_ready = False
+                self._index       = 0
 
         def run(self):
             '''
@@ -137,18 +151,20 @@ class TrainingSet:
             Load a batch of records.
             :raises StopIteration: If there are no more examples to load. There may still be some saved in the batch.
             '''
-            with self._lock:
-                if self._index < self._batch_size:
-                    profiler = prof('Loaded {} records', lambda: self._index)
+            if self._index < self._batch_size:
+                with self._lock, prof('Loaded {} records', lambda: self._index):
                     while self._index < self._batch_size:
                         record = self._file.readline()
                         if not record:
-                            raise StopIteration
+                            break
                         self._records[self._index] = json.loads(record)
                         self._index += 1
                     if self._index < self._batch_size:
                         # Don't iterate any more if we hit EOF before finishing the batch.
                         self._active = False
+                    if self._index == 0:
+                        # Stop iterating now if current batch empty.
+                        raise StopIteration
                     self._batch_ready = True
 
         def __iter__(self):
