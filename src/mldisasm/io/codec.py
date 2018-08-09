@@ -33,6 +33,14 @@ class Codec(metaclass=ABCMeta):
         '''
         raise NotImplementedError
 
+def _recursive_map(f, t, *args, axis=0, **kwargs):
+    '''
+    Recursively map a function over a tensor until reaching the given axis.
+    '''
+    if t.shape.ndims == axis + 1:
+        return tf.map_fn(f, t, *args, **kwargs)
+    return tf.map_fn(lambda x: _recursive_map(f, x, *args, **kwargs), t, *args, **kwargs)
+
 class AsciiCodec(Codec):
     '''
     Encode ASCII as token indices, or decode token indices into ASCII.
@@ -73,22 +81,25 @@ class AsciiCodec(Codec):
         # Check parameters.
         if not isinstance(indices, tf.Tensor):
             raise TypeError('Expected Tensor, not {}'.format(type(indices).__name__))
-        ndim = len(indices.shape)
-        if ndim > 1:
-            # Recursively map and reduce over nD tensor until n=1.
-            return tf.reduce_join(tf.map_fn(self.decode, indices, dtype=tf.string))
-        # Convert indices into tokens and join into a single string. This has to be done on the CPU as there is no GPU
-        # kernel for string ops.
+        #ndim = len(indices.shape)
+        #if ndim > 2:
+        #    # Recursively map and reduce over nD tensor until n=1.
+        #    return tf.reduce_join(tf.map_fn(self.decode, indices, dtype=tf.string), axis=1)
+        # Convert indices into tokens and join into a string per example in the batch. This has to be done on the CPU as
+        # there is no GPU kernel for string ops.
         with tf.device('/cpu:0'):
-            return tf.reduce_join(tf.map_fn(
-                lambda idx: tf.cond(
-                    idx >= 0,
-                    true_fn  = lambda: self.tokens.as_tensor[idx],
-                    false_fn = lambda: tf.convert_to_tensor('')
+            return tf.reduce_join(
+                _recursive_map(
+                    lambda i: tf.cond(
+                        i >= 0,
+                        true_fn  = lambda: self.tokens.as_tensor[i],
+                        false_fn = lambda: tf.convert_to_tensor('')
+                    ),
+                    indices,
+                    dtype=tf.string
                 ),
-                indices,
-                dtype=tf.string
-            ))
+                axis=[1,0]
+            )
 
 class BytesCodec(Codec):
     '''
