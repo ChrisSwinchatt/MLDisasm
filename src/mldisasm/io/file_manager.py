@@ -108,15 +108,12 @@ class FileManager:
         '''
         return open(self._qualify_training(name), 'w', *args, **kwargs)
 
-    def save_model(self, model, name, *args, **kwargs):
+    def save_model(self, model, name):
         '''
         Save a model.
         :param model: The model to save.
-        :param args: Extra arguments for open().
-        :param kwargs: Keyword arguments for open().
         '''
-        with open(self._qualify_model(name), 'wb', *args, **kwargs) as file:
-            pickle.dump(model, file)
+        model.save(self._qualify_model(name))
 
     def _open_config(self, *args, **kwargs):
         '''

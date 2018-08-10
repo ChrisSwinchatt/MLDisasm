@@ -6,12 +6,14 @@ MLDisasm disassembler.
 
 import functools
 
+import numpy as np
+
 import tensorflow.keras as keras
 
 import mldisasm.io.log        as     log
 from   mldisasm.training.loss import LOSS_FUNCTIONS
 
-class Disassembler:
+class Disassembler(keras.Sequential):
     '''
     Machine learning disassembler.
     '''
@@ -30,17 +32,21 @@ class Disassembler:
         :param lstm_forget_bias: Whether to apply unit forget bias. Default is True.
         :param dense_activation: Name of the dense layer activation function. Default is sigmoid.
         :param use_softmax: Whether to use a softmax layer. Output of a softmax layer is a vector whose values sum to 1.
-        :param loss: Name of the loss function to minimise during training. Default is levenshtein.
+        :param loss: Name of the loss function to minimise during training. Default is mean squared error.
         :param optimizer: Name of the optimiser. Default is SGD.
         :param batch_size: Batch size. Default is None (unknown).
         :param seq_len: Sequence length. Default is None (unknown).
         '''
-        # Create sequential model.
+        super().__init__()
         self.tokens = tokens
-        self.model  = keras.Sequential(name='sequential')
+        input_shape = (kwargs.get('seq_len', None), 1)
+        # Add input layer.
+        self.add(keras.layers.InputLayer(input_shape=input_shape))
+        # Add masking layer to mask INF values.
+        self.add(keras.layers.Masking(mask_value=[0], input_shape=input_shape))
         # Append LSTM layers.
         for _ in range(kwargs.get('lstm_layers', 1)):
-            self.model.add(keras.layers.LSTM(
+            self.add(keras.layers.LSTM(
                 units             = hidden_size,
                 activation        = kwargs.get('lstm_activation',  'tanh'),
                 dropout           = kwargs.get('lstm_dropout',     0.0),
@@ -50,38 +56,18 @@ class Disassembler:
                 return_sequences  = True
             ))
         # Append dense layer.
-        self.model.add(keras.layers.Dense(
-            units      = len(self.tokens),
+        self.add(keras.layers.Dense(
+            units      = 1,
             activation = kwargs.get('dense_activation', 'sigmoid')
         ))
         # Compile the model with an optimiser and loss function.
-        loss = kwargs.get('loss', 'levenshtein')
+        loss = kwargs.get('loss', 'mean_squared_error')
         if loss in LOSS_FUNCTIONS:
             loss = functools.partial(
                 LOSS_FUNCTIONS[loss],
                 codec
             )
-        self.model.compile(kwargs.get('optimizer', 'SGD'), loss)
-
-    def train(self, inputs, targets):
-        '''
-        Train the model.
-        :param inputs: A tensor of one-hot encoded real numbers.
-        :param targets: A tensor of one-hot encoded strings.
-        :returns: The training history, see tensorflow.keras.Model.fit().
-        '''
-        _validate_training_inputs(inputs, targets)
-        return self.model.fit(inputs, targets, steps_per_epoch=inputs.shape[0])
-
-    def disassemble(self, inputs):
-        '''
-        Produce disassembly.
-        :param inputs: The input tensor.
-        '''
-        self.model(inputs)
-
-    def __str__(self):
-        return self.model.summary()
+        self.compile(kwargs.get('optimizer', 'SGD'), loss)
 
 def _validate_training_inputs(inputs, targets):
     '''

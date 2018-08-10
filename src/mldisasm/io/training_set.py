@@ -72,20 +72,17 @@ class TrainingSet:
         Get the next batch of records. Blocks until the batch is available.
         :returns: A tuple of (examples,targets)
         '''
-        profiler  = prof('Processed batch')
-        batch     = next(self._worker) # This can raise StopIteration; if so, we let the caller catch it.
-        batch_len = len(batch)
-        examples  = [None]*batch_len
-        targets   = [None]*batch_len
-        for i in range(batch_len):
-            assert batch[i] is not None
-            assert len(batch[i]) == 2
-            examples[i] = batch[i][0]
-            targets[i]  = batch[i][1]
-        return (
-            tf.reshape(tf.convert_to_tensor(examples), (batch_len,self._seq_len,1)),
-            tf.reshape(tf.convert_to_tensor(targets),  (batch_len,self._seq_len,1))
-        )
+        with prof('Processed batch'):
+            batch     = next(self._worker) # This can raise StopIteration; if so, we let the caller catch it.
+            batch_len = len(batch)
+            examples  = [None]*batch_len
+            targets   = [None]*batch_len
+            for i in range(batch_len):
+                assert batch[i] is not None
+                assert len(batch[i]) == 2
+                examples[i] = batch[i][0]
+                targets[i]  = batch[i][1]
+        return tf.stack(examples), tf.stack(targets)
 
     class Worker(threading.Thread):
         '''

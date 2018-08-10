@@ -19,7 +19,9 @@ warnings.filterwarnings("ignore", message="numpy.ufunc size changed")
 if __name__ == '__main__':
     print('*** Starting up...')
 
-import tensorflow as tf
+import tensorflow               as tf
+import tensorflow.keras         as keras
+import tensorflow.keras.backend as K
 
 import mldisasm.benchmarks.profiling as     profiling
 from   mldisasm.benchmarks.profiling import prof
@@ -28,47 +30,26 @@ import mldisasm.io.log               as     log
 from   mldisasm.io.file_manager      import FileManager
 from   mldisasm.model.disassembler   import Disassembler
 
-FEED_DICT = {}
-
-def build_graph(config, tokens, codec):
-    '''
-    Build model & graph.
-    '''
-    with prof('Built training graph'):
-        seq_len    = config['seq_len']
-        batch_size = config['batch_size']
-        model      = Disassembler(
-            **config['model'],
-            tokens     = tokens,
-            codec      = codec,
-            batch_size = batch_size,
-            seq_len    = seq_len
-        )
-        X = tf.placeholder(tf.float32, (batch_size,seq_len,1), name='X')
-        y = tf.placeholder(tf.int32,   (batch_size,seq_len,1), name='y')
-        return model, model.train(X, y)
-
 def train_model(config, tset, tokens, codec):
     '''
     Train a model.
     '''
     # Create a model and build the execution graph.
-    model, loss = build_graph(config, tokens, codec)
-    n_epochs    = config['epochs']
-    total_loss  = 0
-    # Run the graph over each example/target pair
-    for epoch in range(1, n_epochs + 1):
-        with tf.Session() as session, prof('Epoch {} finished with loss={}', epoch, lambda: total_loss):
-            session.run(tf.global_variables_initializer())
-            log.info('Epoch {} of {}'.format(epoch, n_epochs))
-            batch_num = 1
-            for X, y in tset:
-                log.info('`- Batch {}'.format(batch_num))
-                total_loss = session.run(
-                    loss,
-                    feed_dict={'X': X, 'y': y}
-                )
-                batch_num += 1
+    model = Disassembler(
+        **config['model'],
+        tokens     = tokens,
+        codec      = codec,
+        batch_size = config['batch_size'],
+        seq_len    = config['seq_len']
+    )
+    # Run the graph over each example/target pair.
+    with tf.Session() as session, prof('Finished training'):
+        K.set_session(session)
+        K.set_learning_phase(1)
+        session.run(tf.global_variables_initializer())
+        for X, y in tset:
+            model.fit(X, y, steps_per_epoch=1, epochs=config['epochs'], shuffle=True)
+    return model
 
 def load_datasets(model_name, config, file_mgr):
     '''
@@ -112,7 +93,9 @@ def start_training(model_name, file_mgr):
     profiling.init(config['prof_time'], config['prof_mem'])
     # Load datasets and start training.
     tset, tokens, codec = load_datasets(model_name, config, file_mgr)
-    train_model(config, tset, tokens, codec)
+    model = train_model(config, tset, tokens, codec)
+    # Save trained model.
+    file_mgr.save_model(model, model_name)
 
 def read_command_line():
     '''

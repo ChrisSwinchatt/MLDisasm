@@ -35,17 +35,8 @@ def levenshtein_loss(decoder, target, pred):
     t.set_shape(shape[0])
     return t
 
-def crossentropy_loss(_, target, pred):
-    '''
-    Cross-entropy loss.
-    '''
-    return keras.losses.categorical_crossentropy(
-        to_categorical(target),
-        to_categorical(tf.cast(tf.round(pred), dtype=tf.int32))
-    )
 
 # Known loss functions, indexed by name.
 LOSS_FUNCTIONS = {
-    'levenshtein':  levenshtein_loss,
-    'crossentropy': crossentropy_loss
+    'levenshtein':  levenshtein_loss
 }

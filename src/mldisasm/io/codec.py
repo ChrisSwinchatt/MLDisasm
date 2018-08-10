@@ -69,7 +69,7 @@ class AsciiCodec(Codec):
         if len(indices) > self.seq_len:
             log.warning('Expected {} elements or fewer, got {}'.format(self.seq_len, len(indices)))
         while len(indices) < self.seq_len:
-            indices.append([np.inf])
+            indices.append([0])
         if as_tensor:
             return tf.convert_to_tensor(indices, dtype=tf.int64)
         return indices
@@ -128,7 +128,7 @@ class BytesCodec(Codec):
         if len(xs) > self.seq_len:
             log.warning('Expected {} elements or fewer, got {}'.format(self.seq_len, len(xs)))
         while len(xs) < self.seq_len:
-            xs.append([np.inf])
+            xs.append([0])
         if as_tensor:
             return tf.convert_to_tensor(xs)
         return xs
@@ -142,6 +142,6 @@ class BytesCodec(Codec):
         # Convert float tensor into array of bytes.
         xs = (tensor*BYTE_MAX).eval()
         # Filter out infinity values.
-        xs = filter(lambda x: x != np.inf, xs)
+        xs = filter(lambda x: x != 0, xs)
         # Convert to bytes.
         return bytes(map(int, xs))
