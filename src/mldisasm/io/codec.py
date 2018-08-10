@@ -66,6 +66,8 @@ class AsciiCodec(Codec):
         tokens  = self.tokens.tokenize(seq)
         indices = [[float(self.tokens.index(t))/len(self.tokens)] for t in tokens]
         # Pad to seq_len and convert to tensor.
+        if len(indices) > self.seq_len:
+            log.warning('Expected {} elements or fewer, got {}'.format(self.seq_len, len(indices)))
         while len(indices) < self.seq_len:
             indices.append([np.inf])
         if as_tensor:
@@ -123,6 +125,8 @@ class BytesCodec(Codec):
         if bslen > self.seq_len:
             raise ValueError('Length of bytes ({}) is larger than sequence length ({})'.format(bslen, self.seq_len))
         xs = [[float(byte)/BYTE_MAX] for byte in bs]
+        if len(xs) > self.seq_len:
+            log.warning('Expected {} elements or fewer, got {}'.format(self.seq_len, len(xs)))
         while len(xs) < self.seq_len:
             xs.append([np.inf])
         if as_tensor:
