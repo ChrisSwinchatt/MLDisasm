@@ -40,7 +40,8 @@ def train_model(config, tset, tokens, codec):
         tokens     = tokens,
         codec      = codec,
         batch_size = config['batch_size'],
-        seq_len    = config['seq_len']
+        seq_len    = config['seq_len'],
+        mask_value = config['mask_value']
     )
     # Run the graph over each example/target pair.
     with tf.Session() as session, prof('Finished training'):
@@ -61,7 +62,7 @@ def load_datasets(model_name, config, file_mgr):
         batch_size=config['batch_size'],
         seq_len=config['seq_len']
     )
-    return tset, tokens, AsciiCodec(config['seq_len'], tokens)
+    return tset, tokens, AsciiCodec(config['seq_len'], config['mask_value'], tokens)
 
 def select_device(config):
     '''

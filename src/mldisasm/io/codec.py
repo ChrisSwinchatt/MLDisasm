@@ -45,9 +45,10 @@ class AsciiCodec(Codec):
     '''
     Encode ASCII as token indices, or decode token indices into ASCII.
     '''
-    def __init__(self, seq_len, tokens):
-        self.seq_len = seq_len
-        self.tokens  = tokens
+    def __init__(self, seq_len, mask_value, tokens):
+        self._seq_len    = seq_len
+        self._mask_value = mask_value
+        self._tokens     = tokens
 
     def encode(self, seq, as_tensor=True):
         '''
@@ -63,13 +64,13 @@ class AsciiCodec(Codec):
         if not seq:
             raise ValueError('Received empty string')
         # Tokenise the string and convert TokenList indices to reals between 0 and 1.
-        tokens  = self.tokens.tokenize(seq)
-        indices = [[float(self.tokens.index(t))/len(self.tokens)] for t in tokens]
+        tokens  = self._tokens.tokenize(seq)
+        indices = [[float(self._tokens.index(t))/len(self._tokens)] for t in tokens]
         # Pad to seq_len and convert to tensor.
-        if len(indices) > self.seq_len:
-            log.warning('Expected {} elements or fewer, got {}'.format(self.seq_len, len(indices)))
-        while len(indices) < self.seq_len:
-            indices.append([0])
+        if len(indices) > self._seq_len:
+            log.warning('Expected {} elements or fewer, got {}'.format(self._seq_len, len(indices)))
+        while len(indices) < self._seq_len:
+            indices.append([self._mask_value])
         if as_tensor:
             return tf.convert_to_tensor(indices, dtype=tf.int64)
         return indices
@@ -84,7 +85,7 @@ class AsciiCodec(Codec):
         if not isinstance(indices, tf.Tensor):
             raise TypeError('Expected Tensor, not {}'.format(type(indices).__name__))
         # Convert real valued outputs into TokenList indices.
-        indices = tf.cast(tf.round(indices*len(self.tokens)), tf.int32)
+        indices = tf.cast(tf.round(indices*len(self._tokens)), tf.int32)
         # Convert indices into tokens and join into a string per example in the batch. This has to be done on the CPU as
         # there is no GPU kernel for string ops.
         with tf.device('/cpu:0'):
@@ -92,7 +93,7 @@ class AsciiCodec(Codec):
                 _recursive_map(
                     lambda i: tf.cond(
                         i >= 0,
-                        true_fn  = lambda: self.tokens.as_tensor[i],
+                        true_fn  = lambda: self._tokens.as_tensor[i],
                         false_fn = lambda: tf.convert_to_tensor('')
                     ),
                     indices,
@@ -105,12 +106,13 @@ class BytesCodec(Codec):
     '''
     Encodes bytes to one-hot, or decodes one hot into bytes.
     '''
-    def __init__(self, seq_len):
+    def __init__(self, seq_len, mask_value):
         '''
         Initialise BytesCodec.
         :param seq_len: The sequence length.
         '''
-        self.seq_len = seq_len
+        self._seq_len    = seq_len
+        self._mask_value = mask_value
 
     def encode(self, bs, as_tensor=True):
         '''
@@ -122,13 +124,13 @@ class BytesCodec(Codec):
         if not isinstance(bs, bytes):
             raise TypeError('Expected bytes, not {}'.format(type(bs).__name__))
         bslen = len(bs)
-        if bslen > self.seq_len:
-            raise ValueError('Length of bytes ({}) is larger than sequence length ({})'.format(bslen, self.seq_len))
+        if bslen > self._seq_len:
+            raise ValueError('Length of bytes ({}) is larger than sequence length ({})'.format(bslen, self._seq_len))
         xs = [[float(byte)/BYTE_MAX] for byte in bs]
-        if len(xs) > self.seq_len:
-            log.warning('Expected {} elements or fewer, got {}'.format(self.seq_len, len(xs)))
-        while len(xs) < self.seq_len:
-            xs.append([0])
+        if len(xs) > self._seq_len:
+            log.warning('Expected {} elements or fewer, got {}'.format(self._seq_len, len(xs)))
+        while len(xs) < self._seq_len:
+            xs.append([self._mask_value])
         if as_tensor:
             return tf.convert_to_tensor(xs)
         return xs

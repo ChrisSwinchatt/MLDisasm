@@ -36,14 +36,19 @@ class Disassembler(keras.Sequential):
         :param optimizer: Name of the optimiser. Default is SGD.
         :param batch_size: Batch size. Default is None (unknown).
         :param seq_len: Sequence length. Default is None (unknown).
+        :param mask_value: Mask value. Default is None (no masking).
         '''
         super().__init__()
         self.tokens = tokens
         input_shape = (kwargs.get('seq_len', None), 1)
         # Add input layer.
         self.add(keras.layers.InputLayer(input_shape=input_shape))
-        # Add masking layer to mask INF values.
-        self.add(keras.layers.Masking(mask_value=[0], input_shape=input_shape))
+        # Add masking layer.
+        if kwargs.get('mask_value', None) is not None:
+            self.add(keras.layers.Masking(
+                mask_value=kwargs.get('mask_value'),
+                input_shape=input_shape
+            ))
         # Append LSTM layers.
         for _ in range(kwargs.get('lstm_layers', 1)):
             self.add(keras.layers.LSTM(
