@@ -4,9 +4,10 @@
 MLDisasm file manager.
 '''
 
-import pickle
 import json
 import os
+
+import tensorflow.keras as keras
 
 from mldisasm.io.training_set  import TrainingSet
 from mldisasm.model.token_list import TokenList
@@ -68,8 +69,7 @@ class FileManager:
         :param kwargs: Keyword arguments for open().
         :returns: The loaded model.
         '''
-        with open(self._qualify_model(name), 'rb', *args, **kwargs) as file:
-            return pickle.load(file)
+        return keras.models.load_model(self._qualify_model(name))
 
     def open_log(self, *args, **kwargs):
         '''
