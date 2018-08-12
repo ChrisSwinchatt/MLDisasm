@@ -46,6 +46,10 @@ class Profiler:
         if start_msg:
             self._print(start_msg)
 
+    def __del__(self):
+        if not self.ended:
+            self.end()
+
     @property
     def elapsed(self):
         '''
@@ -106,9 +110,6 @@ class Profiler:
             args = (*args, alloc)
         self._print(msg.format(*args))
         self.ended = True
-        # Reset stats.
-        self.start_time = self.end_time
-        self.start_mem  = self.end_mem
 
     def _print(self, msg):
         if self._use_log:
@@ -118,7 +119,20 @@ class Profiler:
 
 def prof(end_msg, *args, start_msg=None, **kwargs):
     '''
-    Create a profiler which reports when it goes out of scope or you call its "end" method.
+    Create a profiler which reports when it goes out of scope, leaves its context, or you call its "end" method.
+    The following examples are all equivalent.
+    :example:
+        with prof('Loaded file'), open(path, 'r') as file:
+            data = file.read()
+    :example:
+        p = prof('Loaded file')
+        with open(path, 'r') as file:
+            data = file.read()
+        p.end()
+    :example:
+        p = prof('Loaded file')
+        with open(path, 'r') as file:
+            return file.read()
     '''
     return Profiler(start_msg, end_msg, *args, **kwargs)
 
