@@ -20,7 +20,6 @@ if __name__ == '__main__':
     print('*** Starting up...')
 
 import tensorflow               as tf
-import tensorflow.keras         as keras
 import tensorflow.keras.backend as K
 
 import mldisasm.benchmarks.profiling as     profiling
@@ -30,7 +29,7 @@ import mldisasm.io.log               as     log
 from   mldisasm.io.file_manager      import FileManager
 from   mldisasm.model.disassembler   import Disassembler
 
-def train_model(config, tset, tokens, codec):
+def train_model(config, tset, tokens, codec, session):
     '''
     Train a model.
     '''
@@ -44,12 +43,15 @@ def train_model(config, tset, tokens, codec):
         mask_value = config['mask_value']
     )
     # Run the graph over each example/target pair.
-    with tf.Session() as session, prof('Finished training'):
-        K.set_session(session)
-        K.set_learning_phase(1)
-        session.run(tf.global_variables_initializer())
-        for X, y in tset:
+    K.set_session(session)
+    K.set_learning_phase(1)
+    session.run(tf.global_variables_initializer())
+    batch_num = 1
+    for X, y in tset:
+        with prof('Trained batch'):
+            log.info('Batch {}'.format(batch_num))
             model.fit(X, y, steps_per_epoch=1, epochs=config['epochs'], shuffle=True)
+            batch_num += 1
     return model
 
 def load_datasets(model_name, config, file_mgr):
@@ -94,9 +96,9 @@ def start_training(model_name, file_mgr):
     profiling.init(config['prof_time'], config['prof_mem'])
     # Load datasets and start training.
     tset, tokens, codec = load_datasets(model_name, config, file_mgr)
-    model = train_model(config, tset, tokens, codec)
-    # Save trained model.
-    file_mgr.save_model(model, model_name)
+    with tf.Session() as session:
+        model = train_model(config, tset, tokens, codec)
+        file_mgr.save_model(model, model_name)
 
 def read_command_line():
     '''

@@ -82,7 +82,9 @@ class TrainingSet:
                 assert len(batch[i]) == 2
                 examples[i] = batch[i][0]
                 targets[i]  = batch[i][1]
-        return tf.stack(examples), tf.stack(targets)
+        # Build tensors on CPU.
+        with tf.device('/cpu:0'):
+            return tf.stack(examples), tf.stack(targets)
 
     class Worker(threading.Thread):
         '''
