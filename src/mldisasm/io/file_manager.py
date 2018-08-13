@@ -9,8 +9,8 @@ import os
 
 import tensorflow.keras as keras
 
-from mldisasm.io.training_set  import TrainingSet
-from mldisasm.model.token_list import TokenList
+from mldisasm.io.training_set import TrainingSet
+from mldisasm.io.token_list   import TokenList
 
 class FileManager:
     '''
@@ -61,12 +61,10 @@ class FileManager:
         '''
         return TokenList(self._qualify_tokens(), *args, **kwargs)
 
-    def load_model(self, name, *args, **kwargs):
+    def load_model(self, name):
         '''
         Load a model.
         :param name: The model name.
-        :param args: Extra arguments for open().
-        :param kwargs: Keyword arguments for open().
         :returns: The loaded model.
         '''
         return keras.models.load_model(self._qualify_model(name))
@@ -108,6 +106,16 @@ class FileManager:
         '''
         return open(self._qualify_training(name), 'w', *args, **kwargs)
 
+    def open_validation(self, name, *args, **kwargs):
+        '''
+        Open validation set file.
+        :param name: The name of the validation set.
+        :param args: Extra arguments for open().
+        :param kwargs: Keyword arguments for open().
+        :returns: An open handle to the training set file.
+        '''
+        return TrainingSet(self._qualify_validation(name), *args, **kwargs)
+
     def save_model(self, model, name):
         '''
         Save a model.
@@ -134,6 +142,9 @@ class FileManager:
         Get the qualified filename of a training set.
         '''
         return self._qualify(name, FileManager._training_raw_name)
+
+    def _qualify_validation(self, name):
+        return self._qualify(name, FileManager._validation_name)
 
     def _qualify_model(self, name):
         '''
@@ -165,10 +176,10 @@ class FileManager:
         '''
         return os.path.join(self._data_dir, *args)
 
-    _model_mode        = 'rb'               # Model open() mode.
     _log_name          = 'mldisasm.log'    # Log filename.
     _config_name       = 'config.json'     # Config filename.
     _model_name        = 'model.pkl'       # Model filename.
     _training_name     = 'training.json'   # Preprocessed training set filename.
     _training_raw_name = 'rawtraining.csv' # Raw training set filename.
-    _tokens_name       = 'tokens.list'     # Token list filena,e.
+    _validation_name   = 'validation.json' # Validation training set filename.
+    _tokens_name       = 'tokens.list'     # Token list filename.

@@ -24,28 +24,24 @@ import tensorflow.keras.backend as K
 
 import mldisasm.benchmarks.profiling as     profiling
 from   mldisasm.benchmarks.profiling import prof
-from   mldisasm.io.codec             import AsciiCodec
 import mldisasm.io.log               as     log
 from   mldisasm.io.file_manager      import FileManager
-from   mldisasm.model.disassembler   import Disassembler
+from   mldisasm.model                import make_disassembler
 
-def train_model(config, tset, tokens, codec, session):
+def train_model(config, tset, tokens):
     '''
     Train a model.
     '''
     # Create a model and build the execution graph.
-    model = Disassembler(
+    model = make_disassembler(
         **config['model'],
         tokens     = tokens,
-        codec      = codec,
         batch_size = config['batch_size'],
         seq_len    = config['seq_len'],
-        mask_value = config['mask_value']
+        mask_value = config['mask_value'],
     )
     # Run the graph over each example/target pair.
-    K.set_session(session)
-    K.set_learning_phase(1)
-    session.run(tf.global_variables_initializer())
+    log.info('Training model')
     batch_num = 1
     for X, y in tset:
         with prof('Trained batch'):
@@ -58,13 +54,18 @@ def load_datasets(model_name, config, file_mgr):
     '''
     Load training and token sets.
     '''
-    tokens = file_mgr.load_tokens(**config)
-    tset   = file_mgr.open_training(
+    tset = file_mgr.open_training(
         model_name,
         batch_size=config['batch_size'],
         seq_len=config['seq_len']
     )
-    return tset, tokens, AsciiCodec(config['seq_len'], config['mask_value'], tokens)
+    valid = file_mgr.open_validation(
+        model_name,
+        batch_size=config['batch_size'],
+        seq_len=config['seq_len']
+    )
+    tokens = file_mgr.load_tokens(**config)
+    return tset, valid, tokens
 
 def select_device(config):
     '''
@@ -94,10 +95,15 @@ def start_training(model_name, file_mgr):
     select_device(config)
     # Initialise profiler.
     profiling.init(config['prof_time'], config['prof_mem'])
-    # Load datasets and start training.
-    tset, tokens, codec = load_datasets(model_name, config, file_mgr)
+    # Load datasets, train & save model.
+    tset, valid, tokens = load_datasets(model_name, config, file_mgr)
     with tf.Session() as session:
-        model = train_model(config, tset, tokens, codec)
+        K.set_session(session)
+        K.set_learning_phase(1)
+        session.run(tf.global_variables_initializer())
+        model = train_model(config, tset, tokens)
+        #results = validate_model(config, valid, model)
+        #print(results)
         file_mgr.save_model(model, model_name)
 
 def read_command_line():

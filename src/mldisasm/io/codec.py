@@ -82,8 +82,8 @@ class AsciiCodec(Codec):
         :returns: An ASCII string tensor.
         '''
         # Check parameters.
-        if not isinstance(indices, tf.Tensor):
-            raise TypeError('Expected Tensor, not {}'.format(type(indices).__name__))
+        if not isinstance(indices, tf.Tensor) and not isinstance(indices, np.ndarray):
+            raise TypeError('Expected Tensor or ndarray, not {}'.format(type(indices).__name__))
         # Convert real valued outputs into TokenList indices.
         indices = tf.cast(tf.round(indices*len(self._tokens)), tf.int32)
         # Convert indices into tokens and join into a string per example in the batch. This has to be done on the CPU as

@@ -11,7 +11,6 @@ import time
 import tensorflow as tf
 
 from mldisasm.benchmarks.profiling import prof
-import mldisasm.io.log as log
 
 # Training set delimiter.
 DELIMITER = '|'
