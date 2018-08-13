@@ -10,22 +10,13 @@ import time
 
 import tensorflow as tf
 
-from mldisasm.benchmarks.profiling import prof
-
-# Training set delimiter.
-DELIMITER = '|'
-
-# Training set encoding.
-ENCODING = 'ascii'
-
-# Every two hex chars represent one byte.
-CHARS_PER_BYTE = 2
+from   mldisasm.benchmarks.profiling import prof
+import mldisasm.io.log               as     log
 
 class TrainingSet:
     '''
     Allows iterating over training set data.
     '''
-
     def __init__(self, file, batch_size,  seq_len):
         '''
         Initialise TrainingSet.
@@ -43,7 +34,7 @@ class TrainingSet:
             self._file.seek(0)
             self._batch_size  = batch_size
             self._seq_len     = seq_len
-            self._record_num  = 1
+            self._batch_num   = 1
             self._iter_flag   = False
             self._worker      = TrainingSet.Worker(self._file, self._batch_size)
             self._worker.start()
@@ -64,6 +55,7 @@ class TrainingSet:
         if self._iter_flag:
             self._worker.restart()
         self._iter_flag = True
+        self._batch_num = 1
         return self
 
     def __next__(self):
@@ -71,6 +63,7 @@ class TrainingSet:
         Get the next batch of records. Blocks until the batch is available.
         :returns: A tuple of (examples,targets)
         '''
+        log.info('Batch {}'.format(self._batch_num))
         with prof('Processed batch'):
             batch     = next(self._worker) # This can raise StopIteration; if so, we let the caller catch it.
             batch_len = len(batch)

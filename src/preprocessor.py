@@ -13,9 +13,18 @@ import sys
 from   mldisasm.io.codec        import AsciiCodec, BytesCodec
 from   mldisasm.io.file_manager import FileManager
 import mldisasm.io.log          as     log
-from   mldisasm.io.training_set import DELIMITER, CHARS_PER_BYTE
 
 REPORT_STEP = 10000
+
+# Training set delimiter.
+DELIMITER = '|'
+
+# Training set encoding.
+ENCODING = 'ascii'
+
+# Every two hex chars represent one byte.
+CHARS_PER_BYTE = 2
+
 
 def pp_encode(record, x_codec, y_codec):
     '''
