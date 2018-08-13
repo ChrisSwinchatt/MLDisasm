@@ -8,9 +8,15 @@ import os
 import sys
 import time
 
-import psutil
-
 import mldisasm.io.log as log
+
+try:
+    import psutil
+    HAVE_PSUTIL = True
+except ImportError as e:
+    HAVE_PSUTIL = False
+    log.debug('Couldn\'t import psutil, memory profiling disabled')
+    log.debug('ImportError: {}'.format(str(e)))
 
 PROF_TIME = True
 PROF_MEM  = True
@@ -38,10 +44,11 @@ class Profiler:
         self._use_log   = use_log
         self.start_time = time.time()
         self.end_time   = 0
-        self.process    = psutil.Process(os.getpid())
-        self.start_mem  = self.process.memory_info()
-        self.end_mem    = None
         self.ended      = False
+        if HAVE_PSUTIL:
+            self.process   = psutil.Process(os.getpid())
+            self.start_mem = self.process.memory_info()
+            self.end_mem   = None
         # Print start message if any.
         if start_msg:
             self._print(start_msg)
@@ -62,6 +69,8 @@ class Profiler:
         '''
         Compute the amount of memory allocated.
         '''
+        if not HAVE_PSUTIL:
+            return 0
         assert self.end_mem is not None
         return self.end_mem.rss - self.start_mem.rss
 
@@ -86,7 +95,8 @@ class Profiler:
         '''
         # Get the new end time & memory usage.
         self.end_time = time.time()
-        self.end_mem  = self.process.memory_info()
+        if HAVE_PSUTIL:
+            self.end_mem  = self.process.memory_info()
         msg  = self.end_msg
         args = self.args
         # Call callable args.
@@ -100,7 +110,7 @@ class Profiler:
         if PROF_TIME:
             msg += ' in {:f} seconds'
             args = (*args, self.elapsed)
-        if PROF_MEM:
+        if HAVE_PSUTIL and PROF_MEM:
             alloc = self.allocated
             if alloc >= 0:
                 msg += ' and allocated {} bytes'
