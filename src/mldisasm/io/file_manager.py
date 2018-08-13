@@ -7,10 +7,12 @@ MLDisasm file manager.
 import json
 import os
 
+import tensorflow       as tf
 import tensorflow.keras as keras
 
-from mldisasm.io.training_set import TrainingSet
-from mldisasm.io.token_list   import TokenList
+from mldisasm.benchmarks.profiling import prof
+from mldisasm.io.training_set      import TrainingSet
+from mldisasm.io.token_list        import TokenList
 
 class FileManager:
     '''
@@ -60,6 +62,20 @@ class FileManager:
         :param kwargs: Keyword arguments for TokenList().
         '''
         return TokenList(self._qualify_tokens(), *args, **kwargs)
+
+    def load_training(self, name):
+        '''
+        Load an entire JSON training set into memory at once.
+        :param path: The path to the training set.
+        :returns: A tuple of the training inputs and targets.
+        '''
+        X, y = [], []
+        with prof('Loaded training set ({} records)', lambda: len(X)), open(self._qualify_training(name), 'r') as file:
+            for line in file:
+                record = json.loads(line)
+                X.append(record[0])
+                y.append(record[1])
+            return tf.stack(X), tf.stack(y)
 
     def load_model(self, name):
         '''
