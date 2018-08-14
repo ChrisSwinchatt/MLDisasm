@@ -5,8 +5,45 @@ MLDisasm disassembler model.
 '''
 
 import tensorflow.keras as keras
+from   tensorflow.keras.wrappers.scikit_learn import KerasRegressor
 
-def make_disassembler(hidden_size, **kwargs):
+def make_sklearn_disassembler(
+    lstm_layers      = None,
+    lstm_activation  = None,
+    lstm_dropout     = None,
+    lstm_r_dropout   = None,
+    use_bias         = None,
+    lstm_forget_bias = None,
+    dense_activation = None,
+    use_softmax      = None,
+    loss             = None,
+    optimizer        = None,
+    batch_size       = None,
+    seq_len          = None,
+    mask_value       = None
+    ):
+    '''
+    Create a disassembler model using SciKit-Learn's gridsearch implementation.
+    :param kwargs: Default values for model parameters (see make_disassembler).
+    '''
+    return KerasRegressor(
+        make_disassembler,
+        lstm_layers=lstm_layers,
+        lstm_activation=lstm_activation,
+        lstm_dropout=lstm_dropout,
+        lstm_r_dropout=lstm_r_dropout,
+        use_bias=use_bias,
+        lstm_forget_bias=lstm_forget_bias,
+        dense_activation=dense_activation,
+        use_softmax=use_softmax,
+        loss=loss,
+        optimizer=optimizer,
+        batch_size=batch_size,
+        seq_len=seq_len,
+        mask_value=mask_value
+    )
+
+def make_disassembler(hidden_size=128, **kwargs):
     '''
     Create a disassembler model.
     :param hidden_size: How many hidden units to use in each LSTM layer.
@@ -24,7 +61,6 @@ def make_disassembler(hidden_size, **kwargs):
     :param batch_size: Batch size. Default is None (variable size).
     :param seq_len: Sequence length. Default is None (variable length).
     :param mask_value: Mask value. Default is None (no masking).
-    :param vocab_size: The size of the vocabulary so this can be checked before making predictions. Default is None.
     :returns: The model.
     '''
     model = keras.Sequential()

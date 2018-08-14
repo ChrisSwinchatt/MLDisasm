@@ -9,6 +9,8 @@ import sys
 import traceback as tb
 import warnings
 
+from sklearn.model_selection import GridSearchCV
+
 # Filter out debug messages from TF.
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '1'
 
@@ -26,14 +28,14 @@ import mldisasm.benchmarks.profiling as     profiling
 from   mldisasm.benchmarks.profiling import prof
 import mldisasm.io.log               as     log
 from   mldisasm.io.file_manager      import FileManager
-from   mldisasm.model                import make_disassembler
+from   mldisasm.model                import make_sklearn_disassembler
 
-def train_model(config, tset, tokens):
+def train_model(config, tokens, X, y):
     '''
     Train a model.
     '''
     # Create a model and build the execution graph.
-    model = make_disassembler(
+    model = make_sklearn_disassembler(
         **config['model'],
         tokens     = tokens,
         batch_size = config['batch_size'],
@@ -41,31 +43,21 @@ def train_model(config, tset, tokens):
         mask_value = config['mask_value'],
     )
     # Run the graph over each example/target pair.
-    log.info('Training model')
-    batch_num = 1
-    for X, y in tset:
-        with prof('Trained batch'):
-            log.info('Batch {}'.format(batch_num))
-            model.fit(X, y, steps_per_epoch=1, epochs=config['epochs'], shuffle=True)
-            batch_num += 1
-    return model
+    log.info('Training model by grid-search')
+    grid = GridSearchCV(model, config['grid'], config['scoring'])
+    grid.fit(X, y)
+    # Log results.
+    log.info('Best parameters were {} (scoring {})'.format(grid.best_params_, grid.best_score_))
+    return grid.best_estimator_
 
 def load_datasets(model_name, config, file_mgr):
     '''
     Load training and token sets.
     '''
-    tset = file_mgr.open_training(
-        model_name,
-        batch_size=config['batch_size'],
-        seq_len=config['seq_len']
-    )
-    valid = file_mgr.open_validation(
-        model_name,
-        batch_size=config['batch_size'],
-        seq_len=config['seq_len']
-    )
+    log.info('Loading training set')
+    X, y = file_mgr.load_training(model_name)
     tokens = file_mgr.load_tokens(**config)
-    return tset, valid, tokens
+    return X, y, tokens
 
 def select_device(config):
     '''
@@ -96,14 +88,12 @@ def start_training(model_name, file_mgr):
     # Initialise profiler.
     profiling.init(config['prof_time'], config['prof_mem'])
     # Load datasets, train & save model.
-    tset, valid, tokens = load_datasets(model_name, config, file_mgr)
+    X, y, tokens = load_datasets(model_name, config, file_mgr)
     with tf.Session() as session:
         K.set_session(session)
         K.set_learning_phase(1)
         session.run(tf.global_variables_initializer())
-        model = train_model(config, tset, tokens)
-        #results = validate_model(config, valid, model)
-        #print(results)
+        model = train_model(config, tokens, X, y)
         file_mgr.save_model(model, model_name)
 
 def read_command_line():

@@ -69,13 +69,26 @@ class FileManager:
         :param path: The path to the training set.
         :returns: A tuple of the training inputs and targets.
         '''
+        # Load the records.
         X, y = [], []
-        with prof('Loaded training set ({} records)', lambda: len(X)), open(self._qualify_training(name), 'r') as file:
-            for line in file:
+        with open(self._qualify_training(name), 'r') as file, prof('Loaded training set ({} records)', lambda: len(X)):
+            # Read the whole file and split on lines.
+            lines = file.readlines()
+            # Preallocate buffers.
+            num_lines = len(lines)
+            X = [None]*num_lines
+            y = [None]*num_lines
+            # Fill buffers.
+            i = 0
+            for line in lines:
                 record = json.loads(line)
-                X.append(record[0])
-                y.append(record[1])
-            return tf.stack(X), tf.stack(y)
+                X[i]   = record[0]
+                y[i]   = record[1]
+                i += 1
+            assert i == num_lines
+        # Build tensors on CPU.
+        with tf.device('/cpu:0'), prof('Processed training set'):
+            return tf.convert_to_tensor(X), tf.convert_to_tensor(y)
 
     def load_model(self, name):
         '''
@@ -199,3 +212,22 @@ class FileManager:
     _training_raw_name = 'rawtraining.csv' # Raw training set filename.
     _validation_name   = 'validation.json' # Validation training set filename.
     _tokens_name       = 'tokens.list'     # Token list filename.
+
+def _fast_count_lines(file, block_size=65536, eol='\n'):
+    '''
+    Count lines in a file quickly(ish).
+    '''
+    lines = 0
+    while True:
+        block = file.read(block_size)
+        if not block:
+            break
+        lines += block.count(eol)
+    return lines
+
+def _blocks(file, block_size=65536):
+    while True:
+        block = file.read(block_size)
+        if not block:
+            break
+        yield block
