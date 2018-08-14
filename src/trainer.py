@@ -4,12 +4,13 @@
 Usage: {0} <model>
 '''
 
+import copy
 import os
 import sys
 import traceback as tb
 import warnings
 
-from sklearn.model_selection import GridSearchCV
+import numpy as np
 
 # Filter out debug messages from TF.
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '1'
@@ -28,34 +29,76 @@ import mldisasm.benchmarks.profiling as     profiling
 from   mldisasm.benchmarks.profiling import prof
 import mldisasm.io.log               as     log
 from   mldisasm.io.file_manager      import FileManager
-from   mldisasm.model                import make_sklearn_disassembler
+from   mldisasm.model                import make_disassembler
 
-def train_model(config, tokens, X, y):
+def parameter_grid(params):
     '''
-    Train a model.
+    Generate a list of parameter sets from a set of parameters whose values are lists.
     '''
-    # Create a model and build the execution graph.
-    model = make_sklearn_disassembler(
-        **config['model'],
-        tokens     = tokens,
-        batch_size = config['batch_size'],
-        seq_len    = config['seq_len'],
-        mask_value = config['mask_value'],
-    )
-    # Run the graph over each example/target pair.
-    log.info('Training model by grid-search')
-    grid = GridSearchCV(model, config['grid'], config['scoring'])
-    grid.fit(X, y)
-    # Log results.
-    log.info('Best parameters were {} (scoring {})'.format(grid.best_params_, grid.best_score_))
-    return grid.best_estimator_
+    keys, values = zip(*sorted(params.items()))
+    sizes        = [len(v) for v in values]
+    size         = np.product(sizes)
+    grid         = np.empty(size, dtype=dict)
+    for i in range(size):
+        grid[i] = dict()
+        for k, vs, size in zip(keys, values, sizes):
+            _, j = divmod(i, size)
+            grid[i][k] = vs[j]
+    return grid
+
+def cv_split(X, y):
+    '''
+    Split a training set in half for cross-validation.
+    '''
+    X_train, X_test = tf.split(X, 2)
+    y_train, y_test = tf.split(y, 2)
+    return X_train, y_train, X_test, y_test
+
+def train_model(config, X, y):
+    '''
+    Train a model by grid-search.
+    '''
+    grid = parameter_grid(config['grid'])
+    X_train, y_train, X_test, y_test = cv_split(X, y)
+    fit_num     = 1
+    num_fits    = len(grid)
+    best_model  = None
+    best_params = None
+    best_loss   = np.inf
+    for grid_params in grid:
+        log.info('Fitting grid {} of {}'.format(fit_num, num_fits))
+        with prof('Trained CV fit'):
+            # Get the parameters and create the model. We use config['model'] for default values for parameters which
+            # aren't overridden in config['grid'].
+            params = copy.deepcopy(config['model'])
+            params.update(grid_params)
+            model = make_disassembler(**params)
+            # Perform cross-validation.
+            history = model.fit(
+                X_train,
+                y_train,
+                steps_per_epoch=1,
+                epochs=params['epochs'],
+                validation_data=(X_test,y_test)
+            )
+            loss = history['val_loss']
+            if loss < best_loss:
+                best_loss   = loss
+                best_model  = model
+                best_params = params
+            fit_num += 1
+    assert best_model  is not None
+    assert best_params is not None
+    log.info('Model with loss={} chosen, best params were:'.format(best_loss))
+    log.info('{}'.format(best_params))
+    return best_model
 
 def load_datasets(model_name, config, file_mgr):
     '''
     Load training and token sets.
     '''
     log.info('Loading training set')
-    X, y = file_mgr.load_training(model_name)
+    X, y   = file_mgr.load_training(model_name)
     tokens = file_mgr.load_tokens(**config)
     return X, y, tokens
 
@@ -88,12 +131,12 @@ def start_training(model_name, file_mgr):
     # Initialise profiler.
     profiling.init(config['prof_time'], config['prof_mem'])
     # Load datasets, train & save model.
-    X, y, tokens = load_datasets(model_name, config, file_mgr)
     with tf.Session() as session:
+        X, y, _ = load_datasets(model_name, config, file_mgr)
         K.set_session(session)
         K.set_learning_phase(1)
         session.run(tf.global_variables_initializer())
-        model = train_model(config, tokens, X, y)
+        model = train_model(config, X, y)
         file_mgr.save_model(model, model_name)
 
 def read_command_line():

@@ -10,9 +10,10 @@ import os
 import tensorflow       as tf
 import tensorflow.keras as keras
 
-from mldisasm.benchmarks.profiling import prof
-from mldisasm.io.training_set      import TrainingSet
-from mldisasm.io.token_list        import TokenList
+from   mldisasm.benchmarks.profiling import prof
+import mldisasm.io.log               as     log
+from   mldisasm.io.training_set      import TrainingSet
+from   mldisasm.io.token_list        import TokenList
 
 class FileManager:
     '''
@@ -74,8 +75,11 @@ class FileManager:
         with open(self._qualify_training(name), 'r') as file, prof('Loaded training set ({} records)', lambda: len(X)):
             # Read the whole file and split on lines.
             lines = file.readlines()
+            num_lines = 10000 #len(lines) XXX
+            if num_lines % 2 != 0:
+                log.warning('An even number of training examples is required, the last example will not be used')
+                num_lines -= 1
             # Preallocate buffers.
-            num_lines = len(lines)
             X = [None]*num_lines
             y = [None]*num_lines
             # Fill buffers.
@@ -85,10 +89,11 @@ class FileManager:
                 X[i]   = record[0]
                 y[i]   = record[1]
                 i += 1
-            assert i == num_lines
+                if i >= num_lines:
+                    break
         # Build tensors on CPU.
         with tf.device('/cpu:0'), prof('Processed training set'):
-            return tf.convert_to_tensor(X), tf.convert_to_tensor(y)
+            return tf.stack(X[:i]), tf.stack(y[:i])
 
     def load_model(self, name):
         '''

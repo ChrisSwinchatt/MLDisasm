@@ -3,14 +3,13 @@
     "fallback_device":       "/cpu:0",
     "prof_time":             true,
     "prof_mem":              true,
-    "epochs":                10,
     "batch_size":            5000,
     "seq_len":               50,
     "mask_value":            -1,
     "scoring":               "accuracy",
     "model": {
+        "epochs":            10,
         "hidden_size":       128,
-        "output_size":       1,
         "lstm_layers":       1,
         "lstm_activation":   "tanh",
         "lstm_use_bias":     true,
@@ -20,15 +19,14 @@
         "dense_activation":  "sigmoid",
         "loss":              "mean_squared_error",
         "optimizer":         "SGD",
-        "opt_learning_rate": 0.001
+        "opt_params":        {"lr": 0.001}
     },
     "grid": {
         "hidden_size":       [128,256],
         "lstm_layers":       [1,3],
-        "lstm_use_bias":     [true,false],
-        "lstm_forget_bias":  [true,false],
         "lstm_dropout":      [0,0.9],
         "lstm_r_dropout":    [0,0.9],
-        "optimizer":         ["Adam"]
+        "optimizer":         ["Adam","SGD"],
+        "opt_params":        [{"lr": 0.1},{"lr": 0.001}]
     }
 }
