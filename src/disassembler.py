@@ -1,15 +1,13 @@
 #!/usr/bin/env python3
 
-'''
+'''Disassemble a binary file using one of the supported syntax models.
+
 Usage: {0} <model> <binary>
 
-Disassemble a binary file using one of the supported syntax models.
+ * <model> is the name of the assembly syntax model to use, such as "intel" or "att" (AT&T).
+ * <binary> names a file containing machine code. The file will be interpreted as raw binary.
 
-`model` is the name of the assembly syntax model to use, such as "intel" or "att" (AT&T).
-
-`binary` names a file containing machine code. The file will be interpreted as raw binary.
-
-Disassembly is output to standard output (stdout).
+Disassembly is written to standard output.
 '''
 
 import sys
@@ -39,10 +37,7 @@ if __name__ == '__main__':
     model      = file_mgr.load_model(model_name)
     # Process the file in seq_len sized chunks. TODO: Implement sliding window. FIXME: How do we detect instruction
     # boundaries when a block of N bytes could contain anywhere from N/15 to N instructions?
-    with tf.device('/cpu:0'), tf.Session() as session, open(input_path, 'rb') as file:
-        session.as_default()
-        K.set_session(session)
-        session.run(tf.global_variables_initializer())
+    with open(input_path, 'rb') as file:
         while True:
             buffer  = file.read(seq_len)
             if not buffer:

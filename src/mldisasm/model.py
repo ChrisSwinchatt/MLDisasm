@@ -4,6 +4,8 @@
 MLDisasm disassembler model.
 '''
 
+import inspect
+
 import tensorflow.keras as keras
 
 def make_disassembler(hidden_size, **kwargs):
@@ -53,21 +55,18 @@ def make_disassembler(hidden_size, **kwargs):
     # Compile and return the model with optimiser and loss function.
     optimizer = kwargs.get('optimizer', 'SGD')
     if hasattr(keras.optimizers, optimizer):
-        optimizer = getattr(keras.optimizers, optimizer)(**kwargs.get('opt_params', {}))
+        # Find the optimizer within the keras.optimizers module.
+        opt = getattr(keras.optimizers, optimizer)
+        # Filter out parameters which aren't found in the optimizer's signature. This is needed for gridsearch because
+        # the opt_params grid contains parameter values for all optimizers being searched.
+        signature  = inspect.signature(opt)
+        opt_params = dict(filter(
+            lambda pair: pair[0] in signature.parameters,
+            kwargs.get('opt_params', dict())
+        ))
+        optimizer = opt(**opt_params)
     model.compile(
         optimizer,
         kwargs.get('loss', 'mean_squared_error')
     )
     return model
-
-def _validate_training_inputs(inputs, targets):
-    '''
-    Validate shape of training inputs/targets.
-    '''
-    if inputs.shape.ndims != 3:
-        raise ValueError('Incorrect dimensionality {} of input tensor (wanted 3)'.format(inputs.shape.ndims))
-    if inputs.shape != targets.shape:
-        raise ValueError('Dimension 0 (batch size) of inputs and targets must match (got {} and {})'.format(
-            inputs.shape,
-            targets.shape
-        ))

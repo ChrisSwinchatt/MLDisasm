@@ -1,32 +1,35 @@
 {
-    "preferred_device":      "/gpu:0",
-    "fallback_device":       "/cpu:0",
-    "prof_time":             true,
-    "prof_mem":              true,
-    "batch_size":            5000,
-    "seq_len":               50,
-    "mask_value":            -1,
-    "scoring":               "accuracy",
+    "prof_time":       true,
+    "prof_mem":        true,
+    "batch_size":      5000,
+    "seq_len":         50,
+    "mask_value":      -1,
+    "scoring":         "accuracy",
+    "gs_record_count": 2000,
     "model": {
-        "epochs":            10,
-        "hidden_size":       128,
-        "lstm_layers":       1,
-        "lstm_activation":   "tanh",
-        "lstm_use_bias":     true,
-        "lstm_forget_bias":  true,
-        "lstm_dropout":      0,
-        "lstm_r_dropout":    0,
-        "dense_activation":  "sigmoid",
-        "loss":              "mean_squared_error",
-        "optimizer":         "SGD",
-        "opt_params":        {"lr": 0.001}
+        "epochs":           1000,
+        "stop_early":       true,
+        "patience":         0,
+        "hidden_size":      128,
+        "lstm_layers":      2,
+        "lstm_activation":  "tanh",
+        "lstm_use_bias":    true,
+        "lstm_forget_bias": true,
+        "lstm_dropout":     0,
+        "lstm_r_dropout":   0,
+        "dense_activation": "sigmoid",
+        "loss":             "mean_squared_error",
+        "optimizer":        "Adamax",
+        "opt_params":       {"lr": 1.0}
     },
     "grid": {
-        "hidden_size":       [128,256],
-        "lstm_layers":       [1,3],
-        "lstm_dropout":      [0,0.9],
-        "lstm_r_dropout":    [0,0.9],
-        "optimizer":         ["Adam","SGD"],
-        "opt_params":        [{"lr": 0.1},{"lr": 0.001}]
+        "optimizer":  ["Adam","Adamax","Adagrad","Adadelta","Nadam","SGD","RMSprop"],
+        "opt_params": {
+            "lr":       [1.0,0.01],
+            "momentum": [0.0,0.0001],
+            "decay":    [0.0,0.0001],
+            "nesterov": [true,false],
+            "amsgrad":  [true,false]
+        }
     }
 }

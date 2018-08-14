@@ -1,10 +1,8 @@
 #!/usr/bin/env python3
 
-'''
-Usage: {0} <model>
+'''Usage: {0} <model>
 '''
 
-import copy
 import os
 import sys
 import traceback as tb
@@ -23,6 +21,7 @@ if __name__ == '__main__':
     print('*** Starting up...')
 
 import tensorflow               as tf
+import tensorflow.keras         as keras
 import tensorflow.keras.backend as K
 
 import mldisasm.benchmarks.profiling as     profiling
@@ -42,8 +41,7 @@ def parameter_grid(params):
     for i in range(size):
         grid[i] = dict()
         for k, vs, size in zip(keys, values, sizes):
-            _, j = divmod(i, size)
-            grid[i][k] = vs[j]
+            grid[i][k] = vs[i % size]
     return grid
 
 def cv_split(X, y):
@@ -54,72 +52,72 @@ def cv_split(X, y):
     y_train, y_test = tf.split(y, 2)
     return X_train, y_train, X_test, y_test
 
-def train_model(config, X, y):
+def select_params(config, X, y):
     '''
-    Train a model by grid-search.
+    Select hyperparameters by gridsearch with cross-validation.
     '''
-    grid = parameter_grid(config['grid'])
+    log.info('Selecting hyperparameters')
     X_train, y_train, X_test, y_test = cv_split(X, y)
+    grid        = parameter_grid(config['grid'])
     fit_num     = 1
     num_fits    = len(grid)
-    best_model  = None
     best_params = None
     best_loss   = np.inf
     for grid_params in grid:
-        log.info('Fitting grid {} of {}'.format(fit_num, num_fits))
+        log.info('Fitting grid {} of {} with parameters {}'.format(fit_num, num_fits, grid_params))
         with prof('Trained CV fit'):
-            # Get the parameters and create the model. We use config['model'] for default values for parameters which
-            # aren't overridden in config['grid'].
-            params = copy.deepcopy(config['model'])
+            params = dict(config['model'])
             params.update(grid_params)
-            model = make_disassembler(**params)
-            # Perform cross-validation.
+            model     = make_disassembler(**params)
+            callbacks = []
+            if params.get('stop_early', False):
+                callbacks.append(keras.callbacks.EarlyStopping(
+                    monitor='val_loss',
+                    patience=params.get('patience', 0)
+                ))
             history = model.fit(
                 X_train,
                 y_train,
-                steps_per_epoch=1,
-                epochs=params['epochs'],
-                validation_data=(X_test,y_test)
+                steps_per_epoch  = 1,
+                epochs           = params['epochs'],
+                validation_data  = (X_test,y_test),
+                validation_steps = 1,
+                callbacks        = callbacks
             )
-            loss = history['val_loss']
+            loss = history.history['val_loss'][0]
+            log.info('Grid {} loss={}'.format(fit_num, loss))
             if loss < best_loss:
                 best_loss   = loss
-                best_model  = model
                 best_params = params
             fit_num += 1
-    assert best_model  is not None
     assert best_params is not None
-    log.info('Model with loss={} chosen, best params were:'.format(best_loss))
-    log.info('{}'.format(best_params))
-    return best_model
+    log.info('Best loss was {} with parameters {}'.format(best_loss, best_params))
+    return best_params
 
-def load_datasets(model_name, config, file_mgr):
+def train_model(params, tset):
     '''
-    Load training and token sets.
+    Train a model.
     '''
-    log.info('Loading training set')
-    X, y   = file_mgr.load_training(model_name)
-    tokens = file_mgr.load_tokens(**config)
-    return X, y, tokens
-
-def select_device(config):
-    '''
-    Select a TensorFlow device according to configuration.
-    '''
-    log.info('Checking TensorFlow device configuration (this can take some time)')
-    preferred = config['preferred_device']
-    fallback  = config['fallback_device']
-    if 'gpu' in preferred.lower() and not tf.test.is_gpu_available():
-        if fallback is None:
-            log.error('Preferred device \'{}\' is not available and no fallback device was specified, stopping.')
-            exit(1)
-        log.warning('Preferred device \'{}\' is not available, falling back to \'{}\''.format(
-            preferred,
-            fallback
+    log.info('Training model with parameters {}'.format(params))
+    model     = make_disassembler(**params)
+    loss      = 0
+    callbacks = []
+    if params.get('stop_early', False):
+        callbacks.append(keras.callbacks.EarlyStopping(
+            monitor='loss',
+            patience=params.get('patience', 0)
         ))
-        return fallback
-    log.info('Preferred TensorFlow device \'{}\' is available'.format(preferred))
-    return preferred
+    #for epoch in range(params['epochs']):
+    #    log.info('Epoch {}/{}'.format(epoch, params['epochs']))
+    for X, y in tset:
+        history = model.fit(
+            X,
+            y,
+            steps_per_epoch=1,
+            epochs=1
+        )
+        loss = history.history['loss'][0]
+    return model, loss
 
 def start_training(model_name, file_mgr):
     '''
@@ -127,17 +125,17 @@ def start_training(model_name, file_mgr):
     '''
     # Load configuration and set TF device.
     config = file_mgr.load_config()
-    select_device(config)
     # Initialise profiler.
     profiling.init(config['prof_time'], config['prof_mem'])
     # Load datasets, train & save model.
-    with tf.Session() as session:
-        X, y, _ = load_datasets(model_name, config, file_mgr)
-        K.set_session(session)
-        K.set_learning_phase(1)
-        session.run(tf.global_variables_initializer())
-        model = train_model(config, X, y)
-        file_mgr.save_model(model, model_name)
+    K.set_learning_phase(1)
+    # Load subset of the training set and find hyperparameters.
+    X, y   = file_mgr.load_training(model_name, max_records=config['gs_record_count'])
+    params = select_params(config, X, y)
+    # Load the full training set and train a model on the whole set.
+    tset     = file_mgr.open_training(model_name, batch_size=config['batch_size'], seq_len=config['seq_len'])
+    model, _ = train_model(params, tset)
+    file_mgr.save_model(model, model_name)
 
 def read_command_line():
     '''
@@ -152,6 +150,7 @@ if __name__ == '__main__':
     # Read command-line args.
     model_name = read_command_line()
     # Start file manager & logging.
+    tf.logging.set_verbosity(tf.logging.INFO)
     file_mgr = FileManager()
     log.init(file_mgr.open_log())
     # Train a model.

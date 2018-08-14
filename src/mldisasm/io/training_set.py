@@ -63,9 +63,10 @@ class TrainingSet:
         Get the next batch of records. Blocks until the batch is available.
         :returns: A tuple of (examples,targets)
         '''
-        log.info('Batch {}'.format(self._batch_num))
         with prof('Processed batch'):
             batch     = next(self._worker) # This can raise StopIteration; if so, we let the caller catch it.
+            log.info('Batch {}'.format(self._batch_num))
+            self._batch_num += 1
             batch_len = len(batch)
             examples  = [None]*batch_len
             targets   = [None]*batch_len
@@ -74,9 +75,9 @@ class TrainingSet:
                 assert len(batch[i]) == 2
                 examples[i] = batch[i][0]
                 targets[i]  = batch[i][1]
-        # Build tensors on CPU.
-        with tf.device('/cpu:0'):
-            return tf.stack(examples), tf.stack(targets)
+            # Build tensors on CPU.
+            with tf.device('/cpu:0'):
+                return tf.stack(examples), tf.stack(targets)
 
     class Worker(threading.Thread):
         '''

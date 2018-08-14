@@ -7,6 +7,8 @@ MLDisasm file manager.
 import json
 import os
 
+import numpy as np
+
 import tensorflow       as tf
 import tensorflow.keras as keras
 
@@ -64,35 +66,39 @@ class FileManager:
         '''
         return TokenList(self._qualify_tokens(), *args, **kwargs)
 
-    def load_training(self, name):
+    def load_training(self, name, max_records=np.inf):
         '''
-        Load an entire JSON training set into memory at once.
-        :param path: The path to the training set.
+        Load (up to) an entire JSON training set into memory at once.
+        :param name: The model name.
+        :param max_records: The maximum number of records to load. Default: infinity, which means load everything.
         :returns: A tuple of the training inputs and targets.
         '''
         # Load the records.
         X, y = [], []
-        with open(self._qualify_training(name), 'r') as file, prof('Loaded training set ({} records)', lambda: len(X)):
+        i = 0
+        with open(self._qualify_training(name), 'r') as file, prof('Loaded training set ({} records)', lambda: i):
             # Read the whole file and split on lines.
             lines = file.readlines()
-            num_lines = 10000 #len(lines) XXX
+            num_lines = int(min(len(lines), max_records))
             if num_lines % 2 != 0:
-                log.warning('An even number of training examples is required, the last example will not be used')
+                log.warning(
+                    'An even number of training examples is required but {} were loaded, '
+                    'the last example will not be used'.format(num_lines)
+                )
                 num_lines -= 1
             # Preallocate buffers.
             X = [None]*num_lines
             y = [None]*num_lines
             # Fill buffers.
-            i = 0
             for line in lines:
                 record = json.loads(line)
-                X[i]   = record[0]
-                y[i]   = record[1]
+                X[i] = record[0]
+                y[i] = record[1]
                 i += 1
                 if i >= num_lines:
                     break
         # Build tensors on CPU.
-        with tf.device('/cpu:0'), prof('Processed training set'):
+        with prof('Processed training set'):
             return tf.stack(X[:i]), tf.stack(y[:i])
 
     def load_model(self, name):
@@ -212,27 +218,8 @@ class FileManager:
 
     _log_name          = 'mldisasm.log'    # Log filename.
     _config_name       = 'config.json'     # Config filename.
-    _model_name        = 'model.pkl'       # Model filename.
+    _model_name        = 'model.hdf5'      # Model filename.
     _training_name     = 'training.json'   # Preprocessed training set filename.
     _training_raw_name = 'rawtraining.csv' # Raw training set filename.
     _validation_name   = 'validation.json' # Validation training set filename.
     _tokens_name       = 'tokens.list'     # Token list filename.
-
-def _fast_count_lines(file, block_size=65536, eol='\n'):
-    '''
-    Count lines in a file quickly(ish).
-    '''
-    lines = 0
-    while True:
-        block = file.read(block_size)
-        if not block:
-            break
-        lines += block.count(eol)
-    return lines
-
-def _blocks(file, block_size=65536):
-    while True:
-        block = file.read(block_size)
-        if not block:
-            break
-        yield block
