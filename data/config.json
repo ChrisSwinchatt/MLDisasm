@@ -7,7 +7,7 @@
     "scoring":         "accuracy",
     "gs_record_count": 2000,
     "model": {
-        "epochs":           1000,
+        "epochs":           100,
         "stop_early":       true,
         "patience":         0,
         "hidden_size":      128,
@@ -24,12 +24,39 @@
     },
     "grid": {
         "optimizer":  ["Adam","Adamax","Adagrad","Adadelta","Nadam","SGD","RMSprop"],
-        "opt_params": {
-            "lr":       [1.0,0.01],
-            "momentum": [0.0,0.0001],
-            "decay":    [0.0,0.0001],
-            "nesterov": [true,false],
-            "amsgrad":  [true,false]
-        }
+        "opt_params": [
+            {"amsgrad": true,  "decay": 0.0,    "lr": 1.0,  "momentum": 0.0,    "nesterov": true}, 
+            {"amsgrad": false, "decay": 0.0001, "lr": 0.01, "momentum": 0.0001, "nesterov": false}, 
+            {"amsgrad": true,  "decay": 0.0,    "lr": 1.0,  "momentum": 0.0,    "nesterov": true}, 
+            {"amsgrad": false, "decay": 0.0001, "lr": 0.01, "momentum": 0.0001, "nesterov": false}, 
+            {"amsgrad": true,  "decay": 0.0,    "lr": 1.0,  "momentum": 0.0,    "nesterov": true}, 
+            {"amsgrad": false, "decay": 0.0001, "lr": 0.01, "momentum": 0.0001, "nesterov": false}, 
+            {"amsgrad": true,  "decay": 0.0,    "lr": 1.0,  "momentum": 0.0,    "nesterov": true}, 
+            {"amsgrad": false, "decay": 0.0001, "lr": 0.01, "momentum": 0.0001, "nesterov": false}, 
+            {"amsgrad": true,  "decay": 0.0,    "lr": 1.0,  "momentum": 0.0,    "nesterov": true}, 
+            {"amsgrad": false, "decay": 0.0001, "lr": 0.01, "momentum": 0.0001, "nesterov": false}, 
+            {"amsgrad": true,  "decay": 0.0,    "lr": 1.0,  "momentum": 0.0,    "nesterov": true}, 
+            {"amsgrad": false, "decay": 0.0001, "lr": 0.01, "momentum": 0.0001, "nesterov": false}, 
+            {"amsgrad": true,  "decay": 0.0,    "lr": 1.0,  "momentum": 0.0,    "nesterov": true}, 
+            {"amsgrad": false, "decay": 0.0001, "lr": 0.01, "momentum": 0.0001, "nesterov": false}, 
+            {"amsgrad": true,  "decay": 0.0,    "lr": 1.0,  "momentum": 0.0,    "nesterov": true}, 
+            {"amsgrad": false, "decay": 0.0001, "lr": 0.01, "momentum": 0.0001, "nesterov": false}, 
+            {"amsgrad": true,  "decay": 0.0,    "lr": 1.0,  "momentum": 0.0,    "nesterov": true}, 
+            {"amsgrad": false, "decay": 0.0001, "lr": 0.01, "momentum": 0.0001, "nesterov": false}, 
+            {"amsgrad": true,  "decay": 0.0,    "lr": 1.0,  "momentum": 0.0,    "nesterov": true}, 
+            {"amsgrad": false, "decay": 0.0001, "lr": 0.01, "momentum": 0.0001, "nesterov": false}, 
+            {"amsgrad": true,  "decay": 0.0,    "lr": 1.0,  "momentum": 0.0,    "nesterov": true}, 
+            {"amsgrad": false, "decay": 0.0001, "lr": 0.01, "momentum": 0.0001, "nesterov": false}, 
+            {"amsgrad": true,  "decay": 0.0,    "lr": 1.0,  "momentum": 0.0,    "nesterov": true}, 
+            {"amsgrad": false, "decay": 0.0001, "lr": 0.01, "momentum": 0.0001, "nesterov": false}, 
+            {"amsgrad": true,  "decay": 0.0,    "lr": 1.0,  "momentum": 0.0,    "nesterov": true}, 
+            {"amsgrad": false, "decay": 0.0001, "lr": 0.01, "momentum": 0.0001, "nesterov": false}, 
+            {"amsgrad": true,  "decay": 0.0,    "lr": 1.0,  "momentum": 0.0,    "nesterov": true}, 
+            {"amsgrad": false, "decay": 0.0001, "lr": 0.01, "momentum": 0.0001, "nesterov": false}, 
+            {"amsgrad": true,  "decay": 0.0,    "lr": 1.0,  "momentum": 0.0,    "nesterov": true}, 
+            {"amsgrad": false, "decay": 0.0001, "lr": 0.01, "momentum": 0.0001, "nesterov": false}, 
+            {"amsgrad": true,  "decay": 0.0,    "lr": 1.0,  "momentum": 0.0,    "nesterov": true}, 
+            {"amsgrad": false, "decay": 0.0001, "lr": 0.01, "momentum": 0.0001, "nesterov": false}
+        ]
     }
 }

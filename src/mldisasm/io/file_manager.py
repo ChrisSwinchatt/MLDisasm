@@ -156,6 +156,14 @@ class FileManager:
         '''
         return TrainingSet(self._qualify_validation(name), *args, **kwargs)
 
+    def save_config(self, config):
+        '''
+        Save a configuration to JSON.
+        :param config: A configuration.
+        '''
+        with self._open_config('w') as file:
+            json.dump(config, file)
+
     def save_model(self, model, name):
         '''
         Save a model.

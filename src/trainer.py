@@ -30,70 +30,6 @@ import mldisasm.io.log               as     log
 from   mldisasm.io.file_manager      import FileManager
 from   mldisasm.model                import make_disassembler
 
-def parameter_grid(params):
-    '''
-    Generate a list of parameter sets from a set of parameters whose values are lists.
-    '''
-    keys, values = zip(*sorted(params.items()))
-    sizes        = [len(v) for v in values]
-    size         = np.product(sizes)
-    grid         = np.empty(size, dtype=dict)
-    for i in range(size):
-        grid[i] = dict()
-        for k, vs, size in zip(keys, values, sizes):
-            grid[i][k] = vs[i % size]
-    return grid
-
-def cv_split(X, y):
-    '''
-    Split a training set in half for cross-validation.
-    '''
-    X_train, X_test = tf.split(X, 2)
-    y_train, y_test = tf.split(y, 2)
-    return X_train, y_train, X_test, y_test
-
-def select_params(config, X, y):
-    '''
-    Select hyperparameters by gridsearch with cross-validation.
-    '''
-    log.info('Selecting hyperparameters')
-    X_train, y_train, X_test, y_test = cv_split(X, y)
-    grid        = parameter_grid(config['grid'])
-    fit_num     = 1
-    num_fits    = len(grid)
-    best_params = None
-    best_loss   = np.inf
-    for grid_params in grid:
-        log.info('Fitting grid {} of {} with parameters {}'.format(fit_num, num_fits, grid_params))
-        with prof('Trained CV fit'):
-            params = dict(config['model'])
-            params.update(grid_params)
-            model     = make_disassembler(**params)
-            callbacks = []
-            if params.get('stop_early', False):
-                callbacks.append(keras.callbacks.EarlyStopping(
-                    monitor='val_loss',
-                    patience=params.get('patience', 0)
-                ))
-            history = model.fit(
-                X_train,
-                y_train,
-                steps_per_epoch  = 1,
-                epochs           = params['epochs'],
-                validation_data  = (X_test,y_test),
-                validation_steps = 1,
-                callbacks        = callbacks
-            )
-            loss = history.history['val_loss'][0]
-            log.info('Grid {} loss={}'.format(fit_num, loss))
-            if loss < best_loss:
-                best_loss   = loss
-                best_params = params
-            fit_num += 1
-    assert best_params is not None
-    log.info('Best loss was {} with parameters {}'.format(best_loss, best_params))
-    return best_params
-
 def train_model(params, tset):
     '''
     Train a model.
@@ -107,16 +43,17 @@ def train_model(params, tset):
             monitor='loss',
             patience=params.get('patience', 0)
         ))
-    #for epoch in range(params['epochs']):
-    #    log.info('Epoch {}/{}'.format(epoch, params['epochs']))
-    for X, y in tset:
-        history = model.fit(
-            X,
-            y,
-            steps_per_epoch=1,
-            epochs=1
-        )
-        loss = history.history['loss'][0]
+    for epoch in range(params['epochs']):
+        log.info('Epoch {}/{}'.format(epoch, params['epochs']))
+        for X, y in tset:
+            history = model.fit(
+                X,
+                y,
+                steps_per_epoch=1,
+                epochs=1,
+                verbose=0
+            )
+            loss = min(history.history['loss'])
     return model, loss
 
 def start_training(model_name, file_mgr):
@@ -129,12 +66,9 @@ def start_training(model_name, file_mgr):
     profiling.init(config['prof_time'], config['prof_mem'])
     # Load datasets, train & save model.
     K.set_learning_phase(1)
-    # Load subset of the training set and find hyperparameters.
-    X, y   = file_mgr.load_training(model_name, max_records=config['gs_record_count'])
-    params = select_params(config, X, y)
-    # Load the full training set and train a model on the whole set.
+    # Train model on the whole set.
     tset     = file_mgr.open_training(model_name, batch_size=config['batch_size'], seq_len=config['seq_len'])
-    model, _ = train_model(params, tset)
+    model, _ = train_model(config['model'], tset)
     file_mgr.save_model(model, model_name)
 
 def read_command_line():
