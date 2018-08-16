@@ -64,7 +64,8 @@ def select_params(config, X, y):
     best_loss   = np.inf
     for grid_params in grid:
         log.info('Fitting grid {} of {} with parameters {}'.format(fit_num, num_fits, grid_params))
-        with prof('Trained CV fit'):
+        loss = 0
+        with prof('Trained CV fit {} with loss={}', fit_num, lambda: loss, log_level='info'):
             X = tf.Variable(X)
             y = tf.Variable(y)
             X_train, y_train, X_test, y_test = cv_split(X, y)

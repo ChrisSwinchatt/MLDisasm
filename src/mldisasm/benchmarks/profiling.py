@@ -26,22 +26,28 @@ class Profiler:
     Reports time taken or memory used between its initialisation and its destruction (or when the end method is called,
     whichever comes first).
     '''
-    def __init__(self, start_msg, end_msg, *args, use_log=True):
+    def __init__(self, start_msg, end_msg, *args, log_level='debug'):
         '''
         Initialise Profiler.
         :param start_msg: A message to print upon starting. If None or empty, nothing is printed.
-        :param end_msg: A message to print upon ending. If None or empty but at least one of PROF_TIME and PROF_MEM is
-        True, a default message containing the amount of time and/or memory used is printed.
+        :param end_msg: A message to print upon ending. If at least one of PROF_TIME and PROF_MEM is True, the amount of
+        time elapsed and/or memory consumed is appended to end_msg before printing.
         :param args: Extra format arguments for end_msg. Any callable arguments will be called (with no arguments) and
         replaced by their return value. This can be used to print values that change in the time between the object's
         instantiation and its destruction/the call to Profiler.end().
+        :param log_level: The log level to to output to. Possible values are None, 'debug', 'info', 'warning' and
+        'error'. Default is 'debug'. None means output goes to stderr.
+        :example:
+            y = 0
+            with Profiler('Snafucating', 'Result of snafucation: {}', lambda: y, log_level='info'):
+                y = make_snafucated(x)
         '''
         # Save params and initialise attributes.
         if not end_msg:
             end_msg = 'Operation finished'
         self.args       = args
         self.end_msg    = end_msg
-        self._use_log   = use_log
+        self._log_level = log_level
         self.start_time = time.time()
         self.end_time   = 0
         self.ended      = False
@@ -122,14 +128,23 @@ class Profiler:
         self.ended = True
 
     def _print(self, msg):
-        if self._use_log:
-            log.debug(msg)
-        else:
+        if self._log_level is None:
             print(msg, file=sys.stderr)
+        elif self._log_level == 'debug':
+            log.debug(msg)
+        elif self._log_level == 'info':
+            log.info(msg)
+        elif self._log_level == 'warning':
+            log.warning(msg)
+        elif self._log_level == 'error':
+            log.error(msg)
+        else:
+            raise ValueError('Unknown log level \'{}\''.format(self._log_level))
 
 def prof(end_msg, *args, start_msg=None, **kwargs):
     '''
-    Create a profiler which reports when it goes out of scope, leaves its context, or you call its "end" method.
+    Create a profiler which reports when it goes out of scope, leaves its context, or you call its "end" method
+    explicitly. See Profiler.__init__() for parameter info.
     The following examples are all equivalent.
     :example:
         with prof('Loaded file'), open(path, 'r') as file:
