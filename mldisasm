@@ -1,0 +1,7 @@
+#!/bin/bash
+
+here=$(dirname "$0")
+
+[[ "${MLD_PYTHON}" = "" ]] && MLD_PYTHON=$(env python3)
+
+"${MLD_PYTHON}" "${here}/src/disassembler.py" $*

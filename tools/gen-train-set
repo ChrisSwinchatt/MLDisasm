@@ -1,0 +1,24 @@
+#!/bin/bash
+
+# Generate a training set for MLDisasm.
+
+name=$(basename "$0")
+here=$(dirname "$0")
+
+if [[ $# -lt 1 || ( "$1" != "-o" && "$1" != "-n" ) ]]; then
+    cat >&2 <<EOF
+Usage: (1) $0 -o 
+       (2) $0 -n 
+
+1. Generate training set using objdump for disassembly.
+2. Generate training set using ndisasm for disassembly.
+
+Read filenames from stdin, pass them through 'get-disasm' and print the output to stdout. File names are printed to stderr.
+EOF
+    exit 1
+fi
+
+while read path; do
+    echo "${name}: ${path}" >&2
+    "${here}/get-disasm" "$1" "$path"
+done

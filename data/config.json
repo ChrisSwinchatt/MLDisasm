@@ -1,0 +1,27 @@
+{
+    "batch_size": 5000,
+    "seq_len": 50,
+    "mask_value": -1,
+    "scoring": "accuracy",
+    "gs_record_count": 2000,
+    "model": {
+        "epochs": 100,
+        "stop_early": true,
+        "patience": 0,
+        "hidden_size": 128,
+        "lstm_layers": 2,
+        "lstm_activation": "tanh",
+        "lstm_use_bias": true,
+        "lstm_forget_bias": true,
+        "lstm_dropout": 1e-09,
+        "lstm_r_dropout": 1e-09,
+        "dense_activation": "sigmoid",
+        "loss": "mean_squared_error",
+        "optimizer": "RMSprop",
+        "opt_params": { "lr": 1.0 }
+    },
+    "grid": {
+        "hidden_size": [128,256,512],
+        "lstm_layers": [1,2,3]
+    }
+}

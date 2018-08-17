@@ -1,0 +1,38 @@
+#!/usr/bin/env python3
+
+'''
+Filter objdump output.
+'''
+
+from   signal import signal, SIGPIPE, SIG_DFL
+import sys
+
+def _replace_all(seq1, seq2, s):
+    while seq1 in s:
+        s = s.replace(seq1, seq2)
+    return s
+
+if __name__ == '__main__':
+    # Ignore closed pipe error.
+    signal(SIGPIPE, SIG_DFL)
+    for line in sys.stdin:
+        # Ignore lines that don't begin with space.
+        if not line.startswith(' '):
+            continue
+        # Split on tab. First column contains the offset, second contains the opcode and third contains the disassembly.
+        elems = line.replace('\n', '').split('\t')
+        # Skip lines with no disassembly.
+        if len(elems) != 3:
+            continue
+        # Slice out the offset.
+        elems = elems[1:]
+        # Remove spaces from opcode digits.
+        opcode = elems[0].replace(' ', '')
+        disasm = _replace_all('  ', ' ', elems[1])
+        # Remove symbol names from branches.
+        if '<' and '>' in disasm:
+            disasm = disasm[:disasm.find('<')]
+        # Remove comments at the end of a line.
+        if '#' in disasm:
+            disasm = disasm[:disasm.find('#')]
+        print('{}|{}'.format(opcode, disasm))
