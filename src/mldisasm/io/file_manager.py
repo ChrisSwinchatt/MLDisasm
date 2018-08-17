@@ -161,8 +161,9 @@ class FileManager:
         Save a configuration to JSON.
         :param config: A configuration.
         '''
-        with self._open_config('w') as file:
-            json.dump(config, file)
+        with self._open_config('w', newline='\n') as file:
+            json.dump(config, file, indent=4, )
+            file.write('\n')
 
     def save_model(self, model, name):
         '''
