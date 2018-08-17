@@ -52,6 +52,31 @@ def cv_split(X, y):
     y_train, y_test = tf.split(y, 2)
     return X_train, y_train, X_test, y_test
 
+def fit_model(params, X, y):
+    '''
+    Fit a model to a set of parameters and return the loss during cross-validation.
+    '''
+    X = tf.Variable(X)
+    y = tf.Variable(y)
+    X_train, y_train, X_test, y_test = cv_split(X, y)
+    callbacks = []
+    if params.get('stop_early', False):
+        callbacks.append(keras.callbacks.EarlyStopping(
+            monitor='val_loss',
+            patience=params.get('patience', 0)
+        ))
+    model   = make_disassembler(**params)
+    history = model.fit(
+        X_train,
+        y_train,
+        steps_per_epoch  = 1,
+        epochs           = params['epochs'],
+        validation_data  = (X_test,y_test),
+        validation_steps = 1,
+        callbacks        = callbacks
+    )
+    return min(history.history['val_loss'])
+
 def select_params(config, X, y):
     '''
     Select hyperparameters by gridsearch with cross-validation.
@@ -62,33 +87,13 @@ def select_params(config, X, y):
     num_fits    = len(grid)
     best_params = None
     best_loss   = np.inf
+    loss = 0
     for grid_params in grid:
         log.info('Fitting grid {} of {} with parameters {}'.format(fit_num, num_fits, grid_params))
-        loss = 0
-        with prof('Trained CV fit {} with loss={}', fit_num, lambda: loss, log_level='info'):
-            X = tf.Variable(X)
-            y = tf.Variable(y)
-            X_train, y_train, X_test, y_test = cv_split(X, y)
+        with prof('Trained grid {} with loss={}', fit_num, lambda: loss, log_level='info'):
             params = dict(config['model'])
             params.update(grid_params)
-            model     = make_disassembler(**params)
-            callbacks = []
-            if params.get('stop_early', False):
-                callbacks.append(keras.callbacks.EarlyStopping(
-                    monitor='val_loss',
-                    patience=params.get('patience', 0)
-                ))
-            history = model.fit(
-                X_train,
-                y_train,
-                steps_per_epoch  = 1,
-                epochs           = params['epochs'],
-                validation_data  = (X_test,y_test),
-                validation_steps = 1,
-                callbacks        = callbacks
-            )
-            loss = min(history.history['val_loss'])
-            log.info('Grid {} loss={}'.format(fit_num, loss))
+            loss = fit_model(params, X, y)
             if loss < best_loss:
                 best_loss   = loss
                 best_params = params
@@ -117,8 +122,6 @@ if __name__ == '__main__':
     try:
         # Load configuration and set TF device.
         config = file_mgr.load_config()
-        # Initialise profiler.
-        profiling.init(config['prof_time'], config['prof_mem'])
         # Find and save hyperparameters.
         K.set_learning_phase(1)
         X, y   = file_mgr.load_training(model_name, max_records=config['gs_record_count'])
