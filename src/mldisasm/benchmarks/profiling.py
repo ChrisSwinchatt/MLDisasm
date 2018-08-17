@@ -10,8 +10,6 @@ import os
 import sys
 import time
 
-import tensorflow as tf
-
 import mldisasm.io.log as log
 
 try:
@@ -163,6 +161,7 @@ class GraphProfiler(GenericResourceProfiler):
         '''
         Measure graph nodes.
         '''
+        import tensorflow as tf
         return len(tf.get_default_graph().get_operations())
 
     def __str__(self):

@@ -4,6 +4,8 @@
     "mask_value": -1,
     "scoring": "accuracy",
     "gs_record_count": 2000,
+    "max_jobs": -1,
+    "max_gpu_mem": 0.99,
     "model": {
         "epochs": 100,
         "stop_early": true,

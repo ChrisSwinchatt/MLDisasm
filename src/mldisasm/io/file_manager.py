@@ -9,9 +9,6 @@ import os
 
 import numpy as np
 
-import tensorflow       as tf
-import tensorflow.keras as keras
-
 from   mldisasm.benchmarks.profiling import prof
 import mldisasm.io.log               as     log
 from   mldisasm.io.training_set      import TrainingSet
@@ -66,20 +63,30 @@ class FileManager:
         '''
         return TokenList(self._qualify_tokens(), *args, **kwargs)
 
-    def load_training(self, name, max_records=np.inf):
+    def load_training(self, name, max_records=np.inf, block_size=65536):
         '''
         Load (up to) an entire JSON training set into memory at once.
         :param name: The model name.
         :param max_records: The maximum number of records to load. Default: infinity, which means load everything.
+        :param block_size: The amount of data to read at once.
         :returns: A tuple of the training inputs and targets.
         '''
-        # Load the records.
-        X, y = [], []
+        X = []
+        y = []
         i = 0
-        with open(self._qualify_training(name), 'r') as file, prof('Loaded training set ({} records)', lambda: i):
-            # Read the whole file and split on lines.
-            lines = file.readlines()
-            num_lines = int(min(len(lines), max_records))
+        with prof('Loaded training set ({} records)', lambda: i, resources=['time','memory']), open(self._qualify_training(name), 'r') as file:
+            # Read the file in blocks until we find up to max_records lines.
+            data      = ''
+            num_lines = 0
+            while True:
+                block = file.read(block_size)
+                if not block:
+                    break
+                data += block
+                if data.count('\n') > max_records:
+                    break
+            lines     = data.split('\n')
+            num_lines = min(len(lines), max_records)
             if num_lines % 2 != 0:
                 log.warning(
                     'An even number of training examples is required but {} were loaded, '
@@ -97,9 +104,7 @@ class FileManager:
                 i += 1
                 if i >= num_lines:
                     break
-        # Build tensors on CPU.
-        with prof('Processed training set'):
-            return tf.stack(X[:i]), tf.stack(y[:i])
+        return X[:i], y[:i]
 
     def load_model(self, name):
         '''
@@ -107,6 +112,7 @@ class FileManager:
         :param name: The model name.
         :returns: The loaded model.
         '''
+        import tensorflow.keras as keras
         return keras.models.load_model(self._qualify_model(name))
 
     def open_log(self, *args, **kwargs):
