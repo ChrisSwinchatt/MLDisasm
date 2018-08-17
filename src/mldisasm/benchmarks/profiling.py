@@ -4,7 +4,8 @@
 MLDisasm profiling.
 '''
 
-from   abc import ABCMeta, abstractmethod
+from   abc  import ABCMeta, abstractmethod
+from   enum import Enum
 import os
 import sys
 import time
@@ -79,7 +80,43 @@ class TimeProfiler(GenericResourceProfiler):
         return time.time()
 
     def __str__(self):
-        return 'in {} seconds'.format(self.compute_delta())
+        delta = round(self.compute_delta(), 3)
+        return 'in {} seconds'.format(delta)
+
+class _MemoryUnit(Enum):
+    '''
+    Data size units.
+    '''
+    B   = 0
+    kiB = 1
+    MiB = 2
+    GiB = 3
+    TiB = 4
+    PiB = 5
+    EiB = 6
+    ZiB = 7
+    YiB = 8
+
+    def __next__(self):
+        '''
+        Get the successor to the current unit.
+        :returns: The successor to the current unit.
+        :raises StopIteration: if the current unit is the last defined one (YiB).
+        '''
+        if self.value >= _MemoryUnit.YiB.value:
+            raise StopIteration
+        return _MemoryUnit(self.value + 1)
+
+def _format_memory_usage(size):
+    '''
+    Format a memory usage in bytes as kiB, MiB, GiB, etc.
+    '''
+    unit = _MemoryUnit.B
+    for unit in _MemoryUnit:
+        if size < 1024:
+            break
+        size = round(size / 1024)
+    return '{} {}'.format(size, unit.name)
 
 class MemoryProfiler(GenericResourceProfiler):
     '''
@@ -113,9 +150,9 @@ class MemoryProfiler(GenericResourceProfiler):
         delta = self.compute_delta()
         if delta is None:
             return ''
-        return '{}d {} bytes'.format(
+        return '{}d {}'.format(
             'allocate' if delta >= 0 else 'free',
-            delta
+            _format_memory_usage(delta)
         )
 
 class GraphProfiler(GenericResourceProfiler):
@@ -130,15 +167,20 @@ class GraphProfiler(GenericResourceProfiler):
 
     def __str__(self):
         delta = self.compute_delta()
-        return '{}ed {} graph nodes'.format(
+        unit  = ''
+        if delta >= 10000:
+            delta /= 1000
+            unit = 'K'
+        return '{}ed {}{} graph nodes'.format(
             'add' if delta >= 0 else 'remov',
-            delta
+            delta,
+            unit
         )
 
 _RESOURCE_PROFILERS = {
-    'time':   TimeProfiler(),
-    'memory': MemoryProfiler(),
-    'graph':  GraphProfiler()
+    'time':   TimeProfiler,
+    'memory': MemoryProfiler,
+    'graph':  GraphProfiler
 }
 
 class Profiler:
@@ -157,7 +199,7 @@ class Profiler:
         instantiation and its destruction/the call to Profiler.end().
         :param log_level: The log level to to output to. Possible values are None, 'debug', 'info', 'warning' and
         'error'. Default is 'debug'. None means output goes to stderr.
-        :param resources: The resources to measure.
+        :param resources: A list of the resources to measure. Possible values are 'time', 'memory' and 'graph'.
         :example:
             y = 0
             with Profiler('Snafucating', 'Result of snafucation: {}', lambda: y, log_level='info'):
@@ -177,7 +219,8 @@ class Profiler:
                     resource,
                     '\', \''.join(_RESOURCE_PROFILERS.keys())
                 ))
-            self.profilers.append(_RESOURCE_PROFILERS[resource])
+            prof_class = _RESOURCE_PROFILERS[resource]
+            self.profilers.append(prof_class())
         # Print start message if any.
         if start_msg:
             self._print(start_msg)
@@ -190,7 +233,7 @@ class Profiler:
         '''
         Enter context.
         '''
-        pass
+        return self
 
     def __exit__(self, exc_type, exc_value, exc_tb):
         '''
@@ -198,6 +241,7 @@ class Profiler:
         '''
         if not self.ended:
             self.end()
+        return self
 
     def end(self):
         '''
@@ -214,8 +258,8 @@ class Profiler:
                 arg = arg()
             tmp = (*tmp, arg)
         args = tmp
-        # Append profiler info.
-        msg = msg + ' ' + ', '.join(map(str, self.profilers))
+        # Append profiler messages, filtering out empty strings.
+        msg = msg + ' ' + ', '.join(filter(lambda x: x, map(str, self.profilers)))
         # Print the message and set the 'ended' flag.
         self._print(msg.format(*args))
         self.ended = True
