@@ -62,8 +62,6 @@ def start_training(model_name, file_mgr):
     '''
     # Load configuration and set TF device.
     config = file_mgr.load_config()
-    # Initialise profiler.
-    profiling.init(config['prof_time'], config['prof_mem'])
     # Load datasets, train & save model.
     K.set_learning_phase(1)
     # Train model on the whole set.
