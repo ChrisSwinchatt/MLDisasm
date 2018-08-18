@@ -3,6 +3,7 @@
 '''Usage: {0} <model>
 '''
 
+import gc
 import os
 import sys
 import traceback as tb
@@ -56,15 +57,23 @@ def fit_model(params, X, y):
     '''
     Fit a model to a set of parameters and return the loss during cross-validation.
     '''
-    X = tf.Variable(X)
-    y = tf.Variable(y)
+    # Clear graph and collect memory from any previous session. Each model we fit adds thousands of nodes to the graph,
+    # and TensorFlow executes the entire graph whenever tf.Session.run() is called. This results in memory allocation
+    # problems and increasingly slow training when we fit successive models. This gives us a clean graph for each model.
+    K.clear_session()
+    gc.collect()
+    # Create training set split.
+    X = tf.Variable(tf.stack(X))
+    y = tf.Variable(tf.stack(y))
     X_train, y_train, X_test, y_test = cv_split(X, y)
+    # Append training callbacks.
     callbacks = []
     if params.get('stop_early', False):
         callbacks.append(keras.callbacks.EarlyStopping(
             monitor='val_loss',
             patience=params.get('patience', 0)
         ))
+    # Train the model.
     model   = make_disassembler(**params)
     history = model.fit(
         X_train,
@@ -75,7 +84,8 @@ def fit_model(params, X, y):
         validation_steps = 1,
         callbacks        = callbacks
     )
-    return min(history.history['val_loss'])
+    # Return the average validation loss.
+    return np.mean(history.history['val_loss'])
 
 def select_params(config, X, y):
     '''
@@ -83,6 +93,9 @@ def select_params(config, X, y):
     '''
     log.info('Selecting hyperparameters')
     grid        = parameter_grid(config['grid'])
+    if len(grid) == 0:
+        log.warning('No parameters to tune. Stopping.')
+        exit(0)
     fit_num     = 1
     num_fits    = len(grid)
     best_params = None

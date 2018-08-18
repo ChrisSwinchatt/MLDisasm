@@ -4,14 +4,12 @@
     "mask_value": -1,
     "scoring": "accuracy",
     "gs_record_count": 2000,
-    "max_jobs": -1,
-    "max_gpu_mem": 0.99,
     "model": {
-        "epochs": 100,
-        "stop_early": true,
-        "patience": 0,
+        "epochs": 1000,
+        "stop_early": false,
+        "patience": 10,
         "hidden_size": 128,
-        "lstm_layers": 2,
+        "lstm_layers": 3,
         "lstm_activation": "tanh",
         "lstm_use_bias": true,
         "lstm_forget_bias": true,
@@ -20,10 +18,12 @@
         "dense_activation": "sigmoid",
         "loss": "mean_squared_error",
         "optimizer": "RMSprop",
-        "opt_params": { "lr": 1.0 }
+        "opt_params": {
+            "lr": 1.0
+        }
     },
     "grid": {
-        "hidden_size": [128,256,512],
-        "lstm_layers": [1,2,3]
+        "lstm_use_bias":    [true,false],
+        "lstm_forget_bias": [true,false]
     }
 }

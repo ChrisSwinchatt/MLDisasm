@@ -9,6 +9,8 @@ import os
 
 import numpy as np
 
+import tensorflow.keras as keras
+
 from   mldisasm.benchmarks.profiling import prof
 import mldisasm.io.log               as     log
 from   mldisasm.io.training_set      import TrainingSet
@@ -112,7 +114,6 @@ class FileManager:
         :param name: The model name.
         :returns: The loaded model.
         '''
-        import tensorflow.keras as keras
         return keras.models.load_model(self._qualify_model(name))
 
     def open_log(self, *args, **kwargs):
