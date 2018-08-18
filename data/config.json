@@ -23,7 +23,15 @@
         }
     },
     "grid": {
-        "lstm_use_bias":    [true,false],
-        "lstm_forget_bias": [true,false]
+        "optimizer": ["Adam","Adadelta","Adagrad","Adamax","Nadam","RMSprop","SGD"],
+        "opt_params": [
+            {"lr": 1e0},
+            {"lr": 1e-1},
+            {"lr": 1e-2},
+            {"lr": 1e-3},
+            {"lr": 1e-4},
+            {"lr": 1e-5},
+            {"lr": 1e-6}
+        ]
     }
 }

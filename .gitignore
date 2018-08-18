@@ -1,9 +1,6 @@
 .vscode/
 .pytest_cache
 __pycache__/
+data/
 *.pyc
-*.csv
-training.json
-validation.json
-*.log
 *~
