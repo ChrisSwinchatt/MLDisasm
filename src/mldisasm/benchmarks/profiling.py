@@ -64,7 +64,7 @@ class GenericResourceProfiler:
             return ''
         return 'Resource usage {}creased by {}'.format(
             'in' if delta >= 0 else 'de',
-            delta
+            abs(delta)
         )
 
 class TimeProfiler(GenericResourceProfiler):
@@ -79,7 +79,7 @@ class TimeProfiler(GenericResourceProfiler):
 
     def __str__(self):
         delta = round(self.compute_delta(), 3)
-        return 'in {} seconds'.format(delta)
+        return 'in {} seconds'.format(abs(delta))
 
 class _MemoryUnit(Enum):
     '''
@@ -150,7 +150,7 @@ class MemoryProfiler(GenericResourceProfiler):
             return ''
         return '{}d {}'.format(
             'allocate' if delta >= 0 else 'free',
-            _format_memory_usage(delta)
+            _format_memory_usage(abs(delta))
         )
 
 class GraphProfiler(GenericResourceProfiler):
@@ -172,7 +172,7 @@ class GraphProfiler(GenericResourceProfiler):
             unit = 'K'
         return '{}ed {}{} graph nodes'.format(
             'add' if delta >= 0 else 'remov',
-            delta,
+            abs(delta),
             unit
         )
 
