@@ -8,10 +8,7 @@ import json
 import threading
 import time
 
-import tensorflow as tf
-
-from   mldisasm.benchmarks.profiling import prof
-import mldisasm.io.log               as     log
+from mldisasm.benchmarks.profiling import prof
 
 class TrainingSet:
     '''
@@ -21,7 +18,7 @@ class TrainingSet:
         '''
         Initialise TrainingSet.
         :param file: A path or handle to the file containing the training set.
-        :param batch_size: Size of a batch of training examples. If this is not a clean divisor of the total training
+        :param batch_size: Size of a batch of training inputs. If this is not a clean divisor of the total training
         set size, the last batch will be smaller than the others.
         :param seq_len: The sequence length.
         '''
@@ -34,7 +31,6 @@ class TrainingSet:
             self._file.seek(0)
             self._batch_size  = batch_size
             self._seq_len     = seq_len
-            self._batch_num   = 1
             self._iter_flag   = False
             self._worker      = TrainingSet.Worker(self._file, self._batch_size)
             self._worker.start()
@@ -49,35 +45,32 @@ class TrainingSet:
         '''
         Get an iterator to the training set.
         '''
+        print('iter')
         # Don't restart the worker on the first call to __iter__. Usually a batch has already been loaded and calling
-        # restart() discards it and loads it again. If we have called __iter__ before, then we do want to discard loaded
-        # batches and start iterating from the beginning.
+        # restart() discards it and loads it again. If we have called __iter__ before, then we do want to discard a
+        # loaded batch and start iterating from the beginning.
         if self._iter_flag:
             self._worker.restart()
         self._iter_flag = True
-        self._batch_num = 1
         return self
 
     def __next__(self):
         '''
         Get the next batch of records. Blocks until the batch is available.
-        :returns: A tuple of (examples,targets)
+        :returns: A tuple of (inputs,targets)
+        :raises StopIteration: when the entire training set is consumed.
         '''
+        print('next')
         with prof('Processed batch'):
             batch     = next(self._worker) # This can raise StopIteration; if so, we let the caller catch it.
-            log.info('Batch {}'.format(self._batch_num))
-            self._batch_num += 1
             batch_len = len(batch)
-            examples  = [None]*batch_len
+            inputs    = [None]*batch_len
             targets   = [None]*batch_len
             for i in range(batch_len):
                 assert batch[i] is not None
                 assert len(batch[i]) == 2
-                examples[i] = batch[i][0]
-                targets[i]  = batch[i][1]
-            # Build tensors on CPU.
-            with tf.device('/cpu:0'):
-                return tf.stack(examples), tf.stack(targets)
+                inputs[i], targets[i] = batch[i]
+            return inputs, targets
 
     class Worker(threading.Thread):
         '''
@@ -141,7 +134,7 @@ class TrainingSet:
         def load_batch(self):
             '''
             Load a batch of records.
-            :raises StopIteration: If there are no more examples to load. There may still be some saved in the batch.
+            :raises StopIteration: If there are no more inputs to load. There may still be some saved in the batch.
             '''
             if self._index < self._batch_size:
                 with self._lock, prof('Loaded {} records', lambda: self._index):

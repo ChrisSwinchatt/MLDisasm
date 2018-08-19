@@ -1,11 +1,12 @@
 {
-    "batch_size": 5000,
+    "max_records": 1000000,
+    "batch_size": 2000,
     "seq_len": 50,
     "mask_value": -1,
     "scoring": "accuracy",
     "gs_record_count": 2000,
     "model": {
-        "epochs": 1000,
+        "epochs": 10,
         "stop_early": false,
         "patience": 10,
         "hidden_size": 128,
@@ -17,21 +18,43 @@
         "lstm_r_dropout": 1e-09,
         "dense_activation": "sigmoid",
         "loss": "mean_squared_error",
-        "optimizer": "RMSprop",
+        "optimizer": "Adagrad",
         "opt_params": {
-            "lr": 1.0
+            "lr": 0.01
         }
     },
     "grid": {
-        "optimizer": ["Adam","Adadelta","Adagrad","Adamax","Nadam","RMSprop","SGD"],
+        "optimizer": [
+            "Adam",
+            "Adadelta",
+            "Adagrad",
+            "Adamax",
+            "Nadam",
+            "RMSprop",
+            "SGD"
+        ],
         "opt_params": [
-            {"lr": 1e0},
-            {"lr": 1e-1},
-            {"lr": 1e-2},
-            {"lr": 1e-3},
-            {"lr": 1e-4},
-            {"lr": 1e-5},
-            {"lr": 1e-6}
+            {
+                "lr": 1.0
+            },
+            {
+                "lr": 0.1
+            },
+            {
+                "lr": 0.01
+            },
+            {
+                "lr": 0.001
+            },
+            {
+                "lr": 0.0001
+            },
+            {
+                "lr": 1e-05
+            },
+            {
+                "lr": 1e-06
+            }
         ]
     }
 }

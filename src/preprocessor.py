@@ -25,7 +25,6 @@ ENCODING = 'ascii'
 # Every two hex chars represent one byte.
 CHARS_PER_BYTE = 2
 
-
 def pp_encode(record, x_codec, y_codec):
     '''
     Encode a single record.
