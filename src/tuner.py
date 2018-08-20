@@ -57,8 +57,10 @@ def fit_model(params, X, y):
     '''
     Fit a model to a set of parameters and return the loss during cross-validation.
     '''
+    # Seed PRNG with a fixed value so each model gets the same sequence of numbers.
+    np.random.seed(1)
     # Clear graph and collect memory from any previous session. Each model we fit adds thousands of nodes to the graph,
-    # and TensorFlow executes the entire graph whenever tf.Session.run() is called. This results in memory allocation
+    # and TensorFlow executes the entire graph whenever tf.Session.run() is called, which results in memory allocation
     # problems and increasingly slow training when we fit successive models. This gives us a clean graph for each model.
     K.clear_session()
     gc.collect()

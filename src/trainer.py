@@ -43,10 +43,10 @@ def train_model(config, name, file_mgr):
         batch_num = 0
         for X, y in file_mgr.yield_training(name, config['batch_size']):
             batch_num += 1
-            with prof('Trained batch {}', lambda: batch_num, log_level='info'):
+            with prof('Trained batch {} with loss={}', lambda: batch_num, lambda: loss, log_level='info'):
                 with tf.device('/cpu:0'):
-                    X = tf.Variable(tf.stack(X))
-                    y  = tf.Variable(tf.stack(y))
+                    X = tf.stack(X)
+                    y = tf.stack(y)
                 history = model.fit(
                     X,
                     y,

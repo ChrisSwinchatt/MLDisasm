@@ -13,7 +13,6 @@ import tensorflow.keras as keras
 
 from   mldisasm.benchmarks.profiling import prof
 import mldisasm.io.log               as     log
-from   mldisasm.io.training_set      import TrainingSet
 from   mldisasm.io.token_list        import TokenList
 
 class FileManager:
@@ -288,16 +287,6 @@ class FileManager:
         :returns: An open handle to the training set file.
         '''
         return open(self._qualify_training(name), 'w', *args, **kwargs)
-
-    def open_validation(self, name, *args, **kwargs):
-        '''
-        Open validation set file.
-        :param name: The name of the validation set.
-        :param args: Extra arguments for open().
-        :param kwargs: Keyword arguments for open().
-        :returns: An open handle to the training set file.
-        '''
-        return TrainingSet(self._qualify_validation(name), *args, **kwargs)
 
     _log_name          = 'mldisasm.log'    # Log filename.
     _config_name       = 'config.json'     # Config filename.
