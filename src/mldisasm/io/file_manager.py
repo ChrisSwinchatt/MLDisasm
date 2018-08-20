@@ -224,38 +224,39 @@ class FileManager:
         '''
         with self.open_training(name) as file:
             while True:
-                # Load blocks until we have more than batch_size lines. This ensures that the block doesn't end partway
-                # through the last record in the batch. The last batch might contain fewer than batch_size records; in
-                # this case, file.read() will return an empty block and we will process however many records we have,
-                # all of which will be complete.
-                file_pos = file.tell()
-                data = ''
-                while data.count('\n') <= batch_size:
-                    block = file.read(block_size)
-                    if not block:
+                with prof('Loaded batch'):
+                    # Load blocks until we have more than batch_size lines. This ensures that the block doesn't end
+                    # partway through the last record in the batch. The last batch might contain fewer than batch_size
+                    # records; in this case, file.read() will return an empty block and we will process however many
+                    # records we have, all of which will be complete.
+                    file_pos = file.tell()
+                    data = ''
+                    while data.count('\n') <= batch_size:
+                        block = file.read(block_size)
+                        if not block:
+                            break
+                        data += block
+                    if not data:
                         break
-                    data += block
-                if not data:
-                    break
-                # Take up to `batch_size` lines and drop any remaining.
-                lines     = data.split('\n')[:batch_size]
-                num_lines = len(lines)
-                # Each line contains a pair of JSON arrays. Decode, decompose and save in X and y.
-                X = [None]*num_lines
-                y = [None]*num_lines
-                for i in range(num_lines):
-                    try:
-                        record = json.loads(lines[i])
-                    except json.JSONDecodeError as e:
-                        print('\'{}\'\n\'{}\''.format(record, lines[i]))
-                        raise e from None
-                    assert len(record) == 2
-                    X[i], y[i] = record
-                # Rewind the file to the end of the last record that we actually used.
-                file_pos += sum(map(lambda x: len(x) + 1, lines))
-                file.seek(file_pos)
-                # Yield the batch.
-                yield X, y
+                    # Take up to `batch_size` lines and drop any remaining.
+                    lines     = data.split('\n')[:batch_size]
+                    num_lines = len(lines)
+                    # Each line contains a pair of JSON arrays. Decode, decompose and save in X and y.
+                    X = [None]*num_lines
+                    y = [None]*num_lines
+                    for i in range(num_lines):
+                        try:
+                            record = json.loads(lines[i])
+                        except json.JSONDecodeError as e:
+                            print('\'{}\'\n\'{}\''.format(record, lines[i]))
+                            raise e from None
+                        assert len(record) == 2
+                        X[i], y[i] = record
+                    # Rewind the file to the end of the last record that we actually used.
+                    file_pos += sum(map(lambda x: len(x) + 1, lines))
+                    file.seek(file_pos)
+                    # Yield the batch.
+                    yield X, y
 
     def open_training(self, name, *args, **kwargs):
         '''
