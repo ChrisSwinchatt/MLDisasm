@@ -118,7 +118,8 @@ def _format_memory_usage(size):
 
 class MemoryProfiler(GenericResourceProfiler):
     '''
-    Profile memory usage.
+    Profile memory usage. Allocations and frees are not measured directly, but inferred from changes in total (virtual
+    and physical) memory usage for the calling process.
     '''
     def __init__(self):
         '''
@@ -134,15 +135,7 @@ class MemoryProfiler(GenericResourceProfiler):
         '''
         if not HAVE_PSUTIL:
             return None
-        return self.process.memory_info().rss
-
-    def compute_delta(self):
-        '''
-        Compute the change in memory usage. Returns None if psutil was not loaded.
-        '''
-        if HAVE_PSUTIL:
-            return super().compute_delta()
-        return None
+        return self.process.memory_info().vms
 
     def __str__(self):
         delta = self.compute_delta()
@@ -196,8 +189,8 @@ class Profiler:
         :param args: Extra format arguments for end_msg. Any callable arguments will be called (with no arguments) and
         replaced by their return value. This can be used to print values that change in the time between the object's
         instantiation and its destruction/the call to Profiler.end().
-        :param log_level: The log level to to output to. Possible values are None, 'debug', 'info', 'warning' and
-        'error'. Default is 'debug'. None means output goes to stderr.
+        :param log_level: The log level to to output to. Possible values are None, 'stdout', 'stderr', 'debug', 'info',
+        'warning' and 'error'. Default is 'debug'. None means suppress output.
         :param resources: A list of the resources to measure. Possible values are 'time', 'memory' and 'graph'.
         :example:
             y = 0
@@ -258,14 +251,16 @@ class Profiler:
             tmp = (*tmp, arg)
         args = tmp
         # Append profiler messages, filtering out empty strings.
-        msg = msg + ' ' + ', '.join(filter(lambda x: x, map(str, self.profilers)))
+        msg = msg + ', ' + ', '.join(filter(lambda x: x, map(str, self.profilers)))
         # Print the message and set the 'ended' flag.
         self._print(msg.format(*args))
         self.ended = True
 
     def _print(self, msg):
         if self.log_level is None:
-            print(msg, file=sys.stderr)
+            return
+        elif self.log_level in ('stdout','stderr'):
+            print(msg, file=getattr(sys, self.log_level))
         elif self.log_level == 'debug':
             log.debug(msg)
         elif self.log_level == 'info':
@@ -277,7 +272,7 @@ class Profiler:
         else:
             raise ValueError('Unknown log level \'{}\''.format(self.log_level))
 
-def prof(end_msg, *args, start_msg=None, **kwargs):
+def prof(end_msg=None, *args, start_msg=None, **kwargs):
     '''
     Create a profiler which reports when it goes out of scope, leaves its context, or you call its "end" method
     explicitly. See Profiler.__init__() for parameter info.
