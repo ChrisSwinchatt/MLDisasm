@@ -67,6 +67,7 @@ def make_disassembler(hidden_size, **kwargs):
         optimizer = opt(**opt_params)
     model.compile(
         optimizer,
-        kwargs.get('loss', 'mean_squared_error')
+        kwargs.get('loss', 'mean_squared_error'),
+        metrics=kwargs.get('metrics', ['accuracy'])
     )
     return model

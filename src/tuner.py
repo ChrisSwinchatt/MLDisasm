@@ -64,8 +64,8 @@ def fit_model(params, X, y):
     K.clear_session()
     gc.collect()
     # Create training set split.
-    X = tf.Variable(tf.stack(X))
-    y = tf.Variable(tf.stack(y))
+    X = tf.stack(X)
+    y = tf.stack(y)
     X_train, y_train, X_test, y_test = cv_split(X, y)
     # Append training callbacks.
     callbacks = []
@@ -85,15 +85,15 @@ def fit_model(params, X, y):
         validation_steps = 1,
         callbacks        = callbacks
     )
-    # Return the average validation loss.
-    return np.mean(history.history['val_loss'])
+    # Return the final validation loss.
+    return history.history['val_loss'][-1]
 
 def select_params(config, X, y):
     '''
     Select hyperparameters by gridsearch with cross-validation.
     '''
     log.info('Selecting hyperparameters')
-    grid        = parameter_grid(config['grid'])
+    grid = parameter_grid(config['grid'])
     if len(grid) == 0:
         log.warning('No parameters to tune. Stopping.')
         exit(0)
@@ -138,7 +138,7 @@ if __name__ == '__main__':
         config = file_mgr.load_config()
         # Find and save hyperparameters.
         K.set_learning_phase(1)
-        X, y   = file_mgr.load_training(model_name, max_records=config['gs_record_count'])
+        X, y   = file_mgr.load_training(model_name, max_records=config['batch_size'])
         params = select_params(config, X, y)
         config['model'] = params
         file_mgr.save_config(config)

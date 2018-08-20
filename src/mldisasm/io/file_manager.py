@@ -15,6 +15,12 @@ from   mldisasm.benchmarks.profiling import prof
 import mldisasm.io.log               as     log
 from   mldisasm.io.token_list        import TokenList
 
+class TrainingSetError(Exception):
+    '''
+    Exception raised when there is an error loading the training set.
+    '''
+    pass
+
 class FileManager:
     '''
     Manage files within a directory.
@@ -129,7 +135,7 @@ class FileManager:
         Save a model.
         :param model: The model to save.
         '''
-        model.save(self._qualify_model(name))
+        model.save(self._qualify_model(name), overwrite=True)
 
     ############################################################################
     # TOKENS                                                                   #
@@ -171,32 +177,25 @@ class FileManager:
         '''
         return self._qualify(name, FileManager._validation_name)
 
-    def load_training(self, name, max_records=np.inf, block_size=65536):
+    def _do_load_training(self, file, block_size, max_records):
         '''
-        Load (up to) an entire JSON training set into memory at once.
-        :param name: The model name.
-        :param max_records: The maximum number of records to load. Default: infinity, which means load everything.
-        :param block_size: The amount of data to read at once.
-        :returns: A tuple of the training inputs and targets.
+        Load up to `max_records` from `file` using blocks of `block_size` bytes.
+        :returns: A tuple of the training inputs and labels.
         '''
-        X = []
-        y = []
-        i = 0
-        with open(self._qualify_training(name), 'r') as file, prof(
-            'Loaded training set ({} records)',
-            lambda: i,
-            resources=['time','memory']
-        ):
-            # Read the file in blocks until we find up to max_records lines.
+        num_lines = 0
+        with prof('Loaded batch ({} records)', lambda: num_lines, resources=['time','memory']):
+            # Blocks are likely to end partway through a record, so we read more data than we need and discard any
+            # excess records. We save the file position so we can calculate the amount of data actually used and seek to
+            # the beginning of the discarded record(s) for the next read.
+            file_pos  = file.tell()
             data      = ''
             num_lines = 0
-            while True:
+            while data.count('\n') <= max_records:
                 block = file.read(block_size)
                 if not block:
                     break
                 data += block
-                if data.count('\n') > max_records:
-                    break
+            # Split on newline and discard records above the maximum.
             lines     = data.split('\n')
             num_lines = min(len(lines), max_records)
             if num_lines % 2 != 0:
@@ -205,58 +204,57 @@ class FileManager:
                     'the last example will not be used'.format(num_lines)
                 )
                 num_lines -= 1
-            # Preallocate buffers.
+            # Process the records and rewind to account for any extra records read.
             X = [None]*num_lines
             y = [None]*num_lines
-            # Fill buffers.
-            for line in lines:
-                record = json.loads(line)
-                X[i] = record[0]
-                y[i] = record[1]
-                i += 1
-                if i >= num_lines:
-                    break
-        return X[:i], y[:i]
+            len_lines = 0
+            for i in range(num_lines):
+                len_lines += len(lines[i]) + 1 # +1 to account for newline stripped by str.split().
+                try:
+                    X[i], y[i] = json.loads(lines[i])
+                except (TypeError,ValueError,json.JSONDecodeError) as e:
+                    # Three exceptions can be raised when decoding training samples:
+                    #  * TypeError: if json.loads doesn't return an iterable.
+                    #  * ValueError: if json.loads returns an object with too many or too few values to
+                    #    unpack.
+                    #  * JSONDecodeError: if the line doesn't contain a valid JSON object.
+                    log.debug(lines[i])
+                    raise TrainingSetError('Training set error: {}'.format(' '.join(e.args))) from e
+            file.seek(file_pos + len_lines)
+            return X, y
 
-    def yield_training(self, name, batch_size, block_size=65536):
+    def load_training(self, name, block_size=65536, max_records=np.inf):
+        '''
+        Load (up to) an entire JSON training set into memory at once.
+        :param name: The model name.
+        :param max_records: The maximum number of records to load. Default: infinity, which means load everything.
+        :param block_size: The amount of data to read at once.
+        :returns: A tuple of the training inputs and targets.
+        '''
+        with self.open_training(name) as file:
+            return self._do_load_training(file, block_size, max_records)
+
+    def yield_training(self, name, batch_size, block_size=65536, max_records=np.inf):
         '''
         Yield training samples in batches.
+        :param name: The name of the training set.
+        :param batch_size: The number of records in each batch. The actual size of a batch may be smaller than
+        batch_size if there are fewer records in the file, or max_records is smaller than batch_size.
+        :param block_size: How many bytes to load from the file at once. This can effect performance, but not the number
+        of records returned - more than one block will be read if necessary.
+        :param max_records: The maximum number of records to load. Overrides batch_size if max_records is smaller.
+        Default value is infinity, which means load up to batch_size or the entire file, whichever is smaller.
+        :returns: A tuple of the training inputs and targets.
         '''
         with self.open_training(name) as file:
             while True:
-                with prof('Loaded batch'):
-                    # Load blocks until we have more than batch_size lines. This ensures that the block doesn't end
-                    # partway through the last record in the batch. The last batch might contain fewer than batch_size
-                    # records; in this case, file.read() will return an empty block and we will process however many
-                    # records we have, all of which will be complete.
-                    file_pos = file.tell()
-                    data = ''
-                    while data.count('\n') <= batch_size:
-                        block = file.read(block_size)
-                        if not block:
-                            break
-                        data += block
-                    if not data:
-                        break
-                    # Take up to `batch_size` lines and drop any remaining.
-                    lines     = data.split('\n')[:batch_size]
-                    num_lines = len(lines)
-                    # Each line contains a pair of JSON arrays. Decode, decompose and save in X and y.
-                    X = [None]*num_lines
-                    y = [None]*num_lines
-                    for i in range(num_lines):
-                        try:
-                            record = json.loads(lines[i])
-                        except json.JSONDecodeError as e:
-                            print('\'{}\'\n\'{}\''.format(record, lines[i]))
-                            raise e from None
-                        assert len(record) == 2
-                        X[i], y[i] = record
-                    # Rewind the file to the end of the last record that we actually used.
-                    file_pos += sum(map(lambda x: len(x) + 1, lines))
-                    file.seek(file_pos)
-                    # Yield the batch.
-                    yield X, y
+                batch_size = min(batch_size, max_records)
+                X, y       = self._do_load_training(file, block_size, batch_size)
+                assert len(X) == len(y)
+                if not X:
+                    break
+                max_records -= len(X)
+                yield X, y
 
     def open_training(self, name, *args, **kwargs):
         '''
