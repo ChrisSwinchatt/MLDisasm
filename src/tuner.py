@@ -25,7 +25,6 @@ import tensorflow               as tf
 import tensorflow.keras         as keras
 import tensorflow.keras.backend as K
 
-import mldisasm.benchmarks.profiling as     profiling
 from   mldisasm.benchmarks.profiling import prof
 import mldisasm.io.log               as     log
 from   mldisasm.io.file_manager      import FileManager
