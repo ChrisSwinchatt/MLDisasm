@@ -32,16 +32,18 @@ from   mldisasm.model                import make_disassembler
 
 def parameter_grid(params):
     '''
-    Generate a list of parameter sets from a set of parameters whose values are lists.
+    Get a list of parameter sets from a set of parameters whose values are lists.
     '''
     keys, values = zip(*sorted(params.items()))
     sizes        = [len(v) for v in values]
-    size         = np.product(sizes)
-    grid         = [None]*size
-    for i in range(size):
+    total_size   = np.product(sizes)
+    grid         = [None]*total_size
+    for i in range(total_size):
         grid[i] = dict()
+        idx     = i
         for k, vs, size in zip(keys, values, sizes):
-            grid[i][k] = vs[i % size]
+            idx, off   = divmod(idx, size)
+            grid[i][k] = vs[off]
     return grid
 
 def cv_split(X, y):
