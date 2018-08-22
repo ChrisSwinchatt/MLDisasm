@@ -3,7 +3,7 @@
 # Pre-commit script.
 
 name=$(basename "$0")
-test_prefix="$(pwd)/src/mldisasm/tests"
+test_prefix="src/mldisasm/tests"
 test_pattern='test_*.py'
 
 # Warn user if tests path doesn't exist but don't fail.

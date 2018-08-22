@@ -25,7 +25,7 @@ model_prefix="${data_prefix}/${model_name}"
 training_file="${model_prefix}/training.csv"
 token_file="${model_prefix}/tokens.list"
 
-bin_path="/sbin:/usr/bin:/usr/sbin:"
+bin_path="/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin"
 
 # Find executables in a directory.
 function find_exes {
@@ -78,6 +78,8 @@ function gen_file_list {
     )
 }
 
-[[ ! -f "${file_list}" ]] && ( gen_file_list >"${file_list}" )
+# Generate the file list if it doesn't exist. Filter out non-unique paths.
+[[ ! -f "${file_list}" ]] && ( gen_file_list | sort -u >"${file_list}" )
 
-cat "${file_list}" | "${gen_train_set}" "${disasm}" <"${file_list}" | sort -u | tee "${training_file}" 
+# Disassemble, tokenise and process each file.
+cat "${file_list}" | "${gen_train_set}" "${disasm}" <"${file_list}" | sort -u | tee "${training_file}" | ${tokenize} >>"${token_file}"
