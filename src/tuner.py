@@ -65,7 +65,7 @@ def fit_model(params, X, y):
     # problems and increasingly slow training when we fit successive models. This gives us a clean graph for each model.
     K.clear_session()
     gc.collect()
-    # Create training set split.
+    # Create cross-validation split.
     X = tf.stack(X)
     y = tf.stack(y)
     X_train, y_train, X_test, y_test = cv_split(X, y)
@@ -97,16 +97,19 @@ def select_params(config, X, y):
     log.info('Selecting hyperparameters')
     grid = parameter_grid(config['grid'])
     if len(grid) == 0:
-        log.warning('No parameters to tune. Stopping.')
+        log.error('No parameters to tune. Stopping.')
         exit(0)
     fit_num     = 1
     num_fits    = len(grid)
     best_params = None
     best_loss   = np.inf
-    loss = 0
+    loss         = 0
     for grid_params in grid:
-        log.info('Fitting grid {} of {} with parameters {}'.format(fit_num, num_fits, grid_params))
-        with prof('Trained grid {} with loss={}', fit_num, lambda: loss, log_level='info'):
+        with prof(
+            'Fit grid {} with loss={}', fit_num, lambda: loss,
+            log_level='info',
+            start_msg='Fitting grid {} of {} with parameters {}'.format(fit_num, num_fits, grid_params)
+        ):
             params = dict(config['model'])
             params.update(grid_params)
             loss = fit_model(params, X, y)
