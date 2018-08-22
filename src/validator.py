@@ -54,10 +54,10 @@ if __name__ == '__main__':
             y_true  = np.asarray([y_true])
             # Compute predictions and loss.
             y_pred  = model.predict(X)
-            loss    = model.test_on_batch(X, y_true)[-1]
+            loss    = model.test_on_batch(X, y_true)
             # Decode and print results.
-            y_true  = y_codec.decode(y_true)
-            y_pred  = y_codec.decode(y_pred)
+            y_true  = ''.join(y_codec.decode(y_true)).rstrip()
+            y_pred  = ''.join(y_codec.decode(y_pred)).rstrip()
             losses.append(loss)
             print('Sample {}: loss={}, avg_loss={}, y_pred=\'{}\', y_true=\'{}\''.format(sample, loss, np.mean(losses), y_pred, y_true))
             sample += 1
