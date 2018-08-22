@@ -72,35 +72,33 @@ class AsciiCodec(Codec):
         while len(indices) < self._seq_len:
             indices.append([self._mask_value])
         if as_tensor:
-            return tf.convert_to_tensor(indices, dtype=tf.int64)
+            return tf.convert_to_tensor(indices)
         return indices
 
-    def decode(self, indices):
+    def decode(self, tensor):
         '''
         Decode a tensor of token indices into an ASCII string tensor.
-        :param indices: The token indices.
-        :returns: An ASCII string tensor.
+        :param tensor: A 3D tensor of shape (batch_size,seq_len,1) containing the token indices.
+        :returns: A list of strings, one per sample in the tensor.
         '''
         # Check parameters.
-        if not isinstance(indices, tf.Tensor) and not isinstance(indices, np.ndarray):
-            raise TypeError('Expected Tensor or ndarray, not {}'.format(type(indices).__name__))
-        # Convert real valued outputs into TokenList indices.
-        indices = tf.cast(tf.round(indices*len(self._tokens)), tf.int32)
-        # Convert indices into tokens and join into a string per example in the batch. This has to be done on the CPU as
-        # there is no GPU kernel for string ops.
-        with tf.device('/cpu:0'):
-            return tf.reduce_join(
-                _recursive_map(
-                    lambda i: tf.cond(
-                        i >= 0,
-                        true_fn  = lambda: self._tokens.as_tensor[i],
-                        false_fn = lambda: tf.convert_to_tensor('')
-                    ),
-                    indices,
-                    dtype=tf.string
-                ),
-                axis=[1,0]
-            )
+        if not isinstance(tensor, tf.Tensor) and not isinstance(tensor, np.ndarray):
+            raise TypeError('Expected Tensor or ndarray, not {}'.format(type(tensor).__name__))
+        # Convert real valued outputs into NumPy array of TokenList indices.
+        batch = tf.cast(tf.round(tensor*len(self._tokens)), tf.int32).eval()
+        assert isinstance(batch, np.ndarray)
+        # Convert indices into tokens. Each row in the tensor contains the indices for a single string.
+        strings = [None]*len(batch)
+        for i, sample in enumerate(batch):
+            indices    = sample.reshape(len(sample))
+            strings[i] = ' '.join(map(
+                lambda idx: self._tokens[idx],
+                filter(
+                    lambda idx: idx != self._mask_value,
+                    indices
+                )
+            ))
+        return strings
 
 class BytesCodec(Codec):
     '''
@@ -141,9 +139,11 @@ class BytesCodec(Codec):
         '''
         if not isinstance(tensor, tf.Tensor):
             raise TypeError('Expected Tensor, not {}'.format(type(tensor).__name__))
-        # Convert float tensor into array of bytes.
-        xs = (tensor*BYTE_MAX).eval()
-        # Filter out infinity values.
-        xs = filter(lambda x: x != 0, xs)
-        # Convert to bytes.
-        return bytes(map(int, xs))
+        xs = map(
+            lambda x: int(x[0]*BYTE_MAX),
+            filter(
+                lambda x: x >= 0,
+                tensor.eval()
+            )
+        )
+        return bytes(xs)
