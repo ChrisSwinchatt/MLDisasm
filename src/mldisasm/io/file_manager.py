@@ -256,6 +256,22 @@ class FileManager:
                 max_records -= len(X)
                 yield X, y
 
+    def yield_validation(self, name):
+        '''
+        Yield validation samples one at a time.
+        '''
+        with self.open_validation(name) as file:
+            for line in file:
+                record = json.loads(line)
+                assert len(record) == 2
+                yield record[0], record[1]
+
+    def open_validation(self, name):
+        '''
+        Open validation file.
+        '''
+        return open(self._qualify_validation(name), 'r')
+
     def open_training(self, name, *args, **kwargs):
         '''
         Open training set file.
