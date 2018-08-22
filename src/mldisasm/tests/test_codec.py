@@ -51,6 +51,7 @@ def test_ascii_codec():
     enter_test(test_ascii_codec)
     codec = AsciiCodec(SEQ_LEN, CONFIG['mask_value'], TOKENS)
     for _ in range(TEST_ITERATIONS):
+        enter_test_iter()
         string  = random_tokens()
         encoded = codec.encode(string)
         decoded = ' '.join(codec.decode(encoded)).rstrip()
@@ -63,6 +64,7 @@ def test_bytes_codec():
     enter_test(test_bytes_codec)
     codec = BytesCodec(SEQ_LEN, CONFIG['mask_value'])
     for _ in range(TEST_ITERATIONS):
+        enter_test_iter()
         bs      = random_bytes(SEQ_LEN)
         encoded = codec.encode(bs)
         decoded = codec.decode(encoded)

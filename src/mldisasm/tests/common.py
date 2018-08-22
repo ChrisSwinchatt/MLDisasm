@@ -23,11 +23,18 @@ def enter_test(func):
     sys.stdout.write('\n{}: '.format(func.__name__))
     sys.stdout.flush()
 
+def enter_test_iter():
+    '''
+    Function called when a test iteration ends.
+    '''
+    sys.stdout.write('-')
+    sys.stdout.flush()
+
 def leave_test_iter():
     '''
     Function called when a test iteration ends.
     '''
-    sys.stdout.write('.')
+    sys.stdout.write('\b+')
     sys.stdout.flush()
 
 def leave_test():

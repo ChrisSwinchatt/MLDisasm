@@ -28,6 +28,7 @@ class TestTokenList:
         '''
         enter_test(self.test_tokenize)
         for _ in range(TEST_ITERATIONS):
+            enter_test_iter()
             size    = random_size(max_size=SEQ_LEN)
             tokens1 = np.random.choice(self.tokens, size)
             string1 = ' '.join(tokens1).replace('  ', ' ')
