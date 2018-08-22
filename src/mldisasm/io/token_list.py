@@ -51,15 +51,16 @@ class TokenList:
         '''
         tokens = []
         # Find tokens by longest match. This breaks when valid tokens pasted together form another valid token, e.g.
-        # "add" and "subps" form "addsubps" which is also a valid token. This would only be a problem if the network
-        # generates two instructions in a row, which should be taken care of during training.
+        # "add" and "subps" form "addsubps", all of which are legal tokens. This would only be a problem if the network
+        # generates two instructions in a row, which should be taken care of during training. This also doesn't handle
+        # the space token correctly.
         i = len(string)
         while i >= 0:
             j = 0
             while j < i:
                 if string[j:i] in self._tokens:
                     tokens.append(string[j:i])
-                    i = j + 1
+                    i = j
                     break
                 j += 1
             i -= 1

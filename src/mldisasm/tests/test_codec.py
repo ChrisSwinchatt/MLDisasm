@@ -44,7 +44,7 @@ def teardown_module():
 def random_tokens():
     '''Generate random tokens'''
     count = np.random.randint(1, SEQ_LEN)
-    return ' '.join(np.random.choice(TOKENS, count)).rstrip()
+    return ' '.join(np.random.choice(TOKENS, count)).replace('  ', ' ').rstrip()
 
 def test_ascii_codec():
     ''' Test AsciiCodec. '''
