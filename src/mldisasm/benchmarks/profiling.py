@@ -231,9 +231,9 @@ class Profiler:
         '''
         Leave context.
         '''
-        if not self.ended:
+        if exc_type is None and not self.ended:
             self.end()
-        if exc_type is not None:
+        elif exc_type is not None:
             assert exc_value is not None
             assert exc_tb is not None
             log.warning('Exception \'{}\' raised in context managed by Profiler'.format(exc_type.__name__))
