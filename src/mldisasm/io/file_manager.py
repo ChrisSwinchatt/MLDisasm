@@ -11,17 +11,14 @@ import numpy as np
 import tensorflow       as tf
 import tensorflow.keras as keras
 
-import ujson
+try:
+    import ujson as json
+except ImportError:
+    import json
 
 from   mldisasm.util.prof import prof
 import mldisasm.util.log               as     log
 from   mldisasm.io.token_list        import TokenList
-
-class TrainingSetError(Exception):
-    '''
-    Exception raised when there is an error loading the training set.
-    '''
-    pass
 
 class FileManager:
     '''
@@ -79,15 +76,15 @@ class FileManager:
         :param kwargs: Keyword arguments for open().
         '''
         with self._open_config(*args, **kwargs) as file:
-            return ujson.load(file)
+            return json.load(file)
 
     def save_config(self, config):
         '''
-        Save a configuration to ujson.
+        Save a configuration to json.
         :param config: A configuration.
         '''
         with self._open_config('w', newline='\n') as file:
-            ujson.dump(config, file, indent=4, )
+            json.dump(config, file, indent=4, )
             file.write('\n')
 
     ############################################################################
@@ -216,16 +213,17 @@ class FileManager:
                 line_num += i
                 len_lines += len(lines[i]) + 1 # +1 to account for newline stripped by str.split().
                 try:
-                    X[i], y[i] = ujson.loads(lines[i])
-                except (TypeError,ValueError) as e:
+                    X[i], y[i] = json.loads(lines[i])
+                except Exception as e:
                     # Three exceptions can be raised when decoding training samples:
-                    #  * TypeError: if ujson.loads doesn't return an iterable.
-                    #  * ValueError: if ujson.loads returns an object with too many or too few values to
-                    #    unpack.
+                    #  * json.JSONDecodeError: if we're using json (not ujson) and there is a syntax error.
+                    #  * TypeError: if json.loads doesn't return an iterable.
+                    #  * ValueError: if json.loads returns an object with too many or too few values to
+                    #    unpack; if we're using ujson and there is a syntax error.
                     log.debug(lines[i])
-                    raise TrainingSetError('training:{}: {}'.format(line_num, ' '.join(e.args))) from e
+                    raise ValueError('training:{}: {}'.format(line_num, ' '.join(e.args))) from e
             file.seek(file_pos + len_lines)
-            return tf.stack(X), tf.stack(y_codec.onehotify(y))
+            return tf.convert_to_tensor(X), tf.convert_to_tensor(y_codec.onehotify(y))
 
     def load_training(self, name, y_codec, block_size=65536, max_records=np.inf):
         '''
@@ -290,7 +288,7 @@ class FileManager:
         '''
         with self.open_validation(name) as file:
             for line in file:
-                record = ujson.loads(line)
+                record = json.loads(line)
                 assert len(record) == 2
                 yield record[0], y_codec.onehotify(record[1])
 
