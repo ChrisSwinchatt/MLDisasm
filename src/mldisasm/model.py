@@ -8,69 +8,116 @@ import inspect
 
 import tensorflow.keras as keras
 
-def make_disassembler(hidden_size, **kwargs):
+import mldisasm.io.log as log
+
+class Disassembler(keras.Sequential):
     '''
-    Create a disassembler model.
-    :param hidden_size: How many hidden units to use in each LSTM layer.
-    :param lstm_layers: How many LSTM layers to use. Default value is 1.
-    :param lstm_activation: Name of the LSTM activation function. Default is 'tanh'.
-    :param lstm_dropout: Dropout rate between LSTM sequences. Default is 0.
-    :param lstm_r_dropout: Dropout rate between steps within each sequence. Default is 0.
-    :param lstm_use_bias: Whether to use bias vectors in LSTM layers. Default is true.
-    :param lstm_forget_bias: Whether to apply unit forget bias. Default is True.
-    :param dense_units: Number of units in the dense layer. Default is 1.
-    :param dense_activation: Name of the dense layer activation function. Default is 'sigmoid'.
-    :param loss: Name of the loss function to minimise during training. Default is 'mean_squared_error'.
-    :param optimizer: Name of the optimiser. Default is 'SGD' (stochastic gradient descent).
-    :param opt_params: Dictionary of optimiser parameters. Default is empty dict. Values are optimizer dependent, but a
-    common one is 'lr' (learning rate).
-    :param batch_size: Batch size. Default is None (variable size).
-    :param seq_len: Sequence length. Default is None (variable length).
-    :param mask_value: Mask value. Default is None (no masking).
-    :returns: The model.
+    Disassembler.
     '''
-    model = keras.Sequential()
-    # Add input layer.
-    input_shape = (kwargs.get('seq_len', None), 1)
-    model.add(keras.layers.InputLayer(input_shape))
-    # Add masking layer.
-    if kwargs.get('mask_value', None) is not None:
-        model.add(keras.layers.Masking(kwargs.get('mask_value'), input_shape=input_shape))
-    # Append LSTM layers.
-    for _ in range(kwargs.get('lstm_layers', 1)):
-        model.add(keras.layers.LSTM(
-            units             = hidden_size,
-            activation        = kwargs.get('lstm_activation',  'tanh'),
-            dropout           = kwargs.get('lstm_dropout',     0.0),
-            use_bias          = kwargs.get('lstm_use_bias',    True),
-            unit_forget_bias  = kwargs.get('lstm_forget_bias', True),
-            recurrent_dropout = kwargs.get('lstm_r_dropout',   0.0),
-            return_sequences  = True
+    def __init__(self, hidden_size, output_size, **kwargs):
+        '''
+        Create a Disassembler model.
+        :param hidden_size: How many hidden units to use in each LSTM layer.
+        :param output_size: Dimensionality of the output.
+        :note: The following parameters must be passed as keyword arguments.
+        :param lstm_layers: How many LSTM layers to use. Default value is 1.
+        :param lstm_activation: Name of the LSTM activation function. Default is 'tanh'.
+        :param lstm_dropout: Dropout rate between LSTM sequences. Default is 0.
+        :param lstm_r_dropout: Dropout rate between steps within each sequence. Default is 0.
+        :param lstm_use_bias: Whether to use bias vectors in LSTM layers. Default is true.
+        :param lstm_forget_bias: Whether to apply unit forget bias. Default is True.
+        :param dense_units: Number of units in the dense layer. Default is 1.
+        :param dense_activation: Name of the dense layer activation function. Default is 'sigmoid'.
+        :param loss: Name of the loss function to minimise during training. Default is 'mean_squared_error'.
+        :param optimizer: Name of the optimiser. Default is 'SGD' (stochastic gradient descent).
+        :param opt_params: Dictionary of optimiser parameters. Default is empty dict. Values are optimizer dependent, but a
+        common one is 'lr' (learning rate).
+        :param batch_size: Batch size. Default is None (variable size).
+        :param seq_len: Sequence length. Default is None (variable length).
+        :param mask_value: Mask value. Default is None (no masking).
+        '''
+        super().__init__()
+        # Save parameters.
+        self.params = {
+            'hidden_size':      hidden_size,
+            'output_size':      output_size,
+            'seq_len':          kwargs.get('seq_len',          None),
+            'mask_value':       kwargs.get('mask_value',       None),
+            'lstm_layers':      kwargs.get('lstm_layers',      1),
+            'lstm_activation':  kwargs.get('lstm_activation',  'tanh'),
+            'lstm_dropout':     kwargs.get('lstm_dropout',     0.0),
+            'lstm_use_bias':    kwargs.get('lstm_use_bias',    True),
+            'lstm_forget_bias': kwargs.get('lstm_forget_bias', True),
+            'lstm_r_dropout':   kwargs.get('lstm_r_dropout',   0.0),
+            'dense_activation': kwargs.get('dense_activation', 'sigmoid'),
+            'use_softmax':      kwargs.get('use_softmax',      False),
+            'optimizer':        kwargs.get('optimizer',        'SGD'),
+            'opt_params':       kwargs.get('opt_params',       dict()),
+            'loss':             kwargs.get('loss',             'categorical_crossentropy'),
+            'metrics':          kwargs.get('metrics',          ['acc'])
+        }
+        # Add input layer.
+        input_shape = (self.params['seq_len'], 1)
+        self.add(keras.layers.InputLayer(input_shape))
+        # Add masking layer.
+        if self.params['mask_value'] is not None:
+            self.add(keras.layers.Masking(self.params['mask_value'], input_shape=input_shape))
+        # Append LSTM layers.
+        for _ in range(self.params['lstm_layers']):
+            self.add(keras.layers.LSTM(
+                units             = hidden_size,
+                activation        = self.params['lstm_activation'],
+                dropout           = self.params['lstm_dropout'],
+                use_bias          = self.params['lstm_use_bias'],
+                unit_forget_bias  = self.params['lstm_forget_bias'],
+                recurrent_dropout = self.params['lstm_r_dropout'],
+                return_sequences  = True
+            ))
+        # Append dense layer.
+        self.add(keras.layers.Dense(
+            output_size,
+            self.params['dense_activation']
         ))
-    # Append dense layer.
-    model.add(keras.layers.Dense(
-        kwargs.get('dense_units', 1),
-        kwargs.get('dense_activation', 'sigmoid')
-    ))
-    # Append softmax layer.
-    if kwargs.get('use_softmax', False):
-        model.add(keras.layers.Softmax(input_shape=input_shape))
-    # Compile and return the model with optimiser and loss function.
-    optimizer = kwargs.get('optimizer', 'SGD')
-    if hasattr(keras.optimizers, optimizer):
-        # Find the optimizer within the keras.optimizers module.
-        opt = getattr(keras.optimizers, optimizer)
-        # Filter out parameters which aren't found in the optimizer's signature. This is needed for gridsearch because
-        # the opt_params grid contains parameter values for all optimizers being searched.
-        signature  = inspect.signature(opt)
-        opt_params = dict(filter(
-            lambda pair: pair[0] in signature.parameters,
-            kwargs.get('opt_params', dict())
-        ))
-        optimizer = opt(**opt_params)
-    model.compile(
-        optimizer,
-        kwargs.get('loss', 'mean_squared_error'),
-        metrics=kwargs.get('metrics', 'accuracy')
-    )
-    return model
+        # Append softmax layer.
+        if self.params['use_softmax']:
+            self.add(keras.layers.Softmax(input_shape=self.input_shape))
+        # Compile the model with optimiser and loss function.
+        optimizer = self.params['optimizer']
+        if isinstance(optimizer, str):
+            # If optimizer is str, interpret it as the name of a Keras optimizer.
+            optimizer = getattr(keras.optimizers, optimizer)
+            # Filter out parameters which aren't found in the optimizer's signature. This is needed for gridsearch
+            # because the opt_params grid contains parameter values for all optimizers being searched.
+            signature  = inspect.signature(optimizer)
+            opt_params = dict(filter(
+                lambda kv: kv[0] in signature.parameters,
+                self.params['opt_params']
+            ))
+            # Instantiate the optimizer with the chosen parameters.
+            optimizer = optimizer(**opt_params)
+        self.compile(
+            optimizer,
+            self.params['loss'],
+            metrics=self.params['metrics']
+        )
+
+    def train_on_batch(self, *args, **kwargs):
+        '''
+        Trace calls to Sequential.train_on_batch().
+        '''
+        log.debug(self.train_on_batch.__name__)
+        return super().train_on_batch(*args, **kwargs)
+
+    def fit(self, *args, **kwargs):
+        '''
+        Trace calls to Sequential.fit().
+        '''
+        log.debug(self.fit.__name__)
+        return super().fit(*args, **kwargs)
+
+    def fit_generator(self, *args, **kwargs):
+        '''
+        Trace calls to Sequential.fit_generator().
+        '''
+        log.debug(self.fit_generator.__name__)
+        return super().fit_generator(*args, **kwargs)

@@ -29,7 +29,7 @@ from   mldisasm.benchmarks.profiling import prof
 from   mldisasm.io.codec             import AsciiCodec
 import mldisasm.io.log               as     log
 from   mldisasm.io.file_manager      import FileManager
-from   mldisasm.model                import make_disassembler
+from   mldisasm.model                import Disassembler
 
 def parameter_grid(params):
     '''
@@ -55,17 +55,12 @@ def cv_split(X, y):
     y_train, y_test = tf.split(y, 2)
     return X_train, y_train, X_test, y_test
 
-def fit_model(params, generator, num_batches):
+def fit_model(config, params, file_mgr, model_name, y_codec):
     '''
     Fit a model to a set of parameters and return the loss during cross-validation.
     '''
     # Seed PRNG with a fixed value so each model gets the same sequence of numbers.
     np.random.seed(1)
-    # Clear graph and collect memory from any previous session. Each model we fit adds thousands of nodes to the graph,
-    # and TensorFlow executes the entire graph whenever tf.Session.run() is called, which results in memory allocation
-    # problems and increasingly slow training when we fit successive models. This gives us a clean graph for each model.
-    K.clear_session()
-    gc.collect()
     # Append training callbacks.
     callbacks = []
     if params.get('stop_early', False):
@@ -73,27 +68,32 @@ def fit_model(params, generator, num_batches):
             monitor='val_loss',
             patience=params.get('patience', 0)
         ))
+    # Create training set generator.
+    generator = file_mgr.yield_training(
+        model_name,
+        y_codec,
+        config['batch_size'],
+        keras_mode=True
+    )
     # Train and validate the model on alternating batches.
-    model   = make_disassembler(**params)
-    history = model.fit_generator(
+    num_batches = config['gs_batches']
+    num_steps   = num_batches//2
+    model       = Disassembler(**params)
+    history     = model.fit_generator(
         generator        = generator,
         validation_data  = generator,
-        steps_per_epoch  = num_batches//2,
-        validation_steps = num_batches//2,
+        steps_per_epoch  = num_steps,
+        validation_steps = num_steps,
         epochs           = params['epochs']
     )
-    '''
-        X_train,
-        y_train,
-        steps_per_epoch  = 1,
-        epochs           = params['epochs'],
-        validation_data  = (X_test,y_test),
-        validation_steps = 1,
-        callbacks        = callbacks
-    )
-    '''
+    loss = history.history['val_loss'][-1]
+    # Clear graph and collect memory from the session. Each model we fit adds thousands of nodes to the graph, and
+    # TensorFlow executes the entire graph whenever tf.Session.run() is called, which results in memory allocation
+    # problems and increasingly slow training when we fit successive models. This gives us a clean graph for each model.
+    K.clear_session()
+    gc.collect()
     # Return the final validation loss.
-    return history.history['val_loss'][-1]
+    return loss
 
 def select_params(config, file_mgr, model_name, y_codec):
     '''
@@ -117,12 +117,7 @@ def select_params(config, file_mgr, model_name, y_codec):
         ):
             params = dict(config['model'])
             params.update(grid_params)
-            generator = file_mgr.yield_training(
-                model_name,
-                y_codec,
-                config['batch_size']
-            )
-            loss = fit_model(params, generator, config['gs_batches'])
+            loss = fit_model(config, params, file_mgr, model_name, y_codec)
             if loss < best_loss:
                 best_loss   = loss
                 best_params = params
@@ -150,9 +145,12 @@ if __name__ == '__main__':
     # Train a model.
     try:
         # Load configuration and set TF device.
-        config = file_mgr.load_config()
-        tokens = file_mgr.load_tokens()
-        y_codec  = AsciiCodec(config['seq_len'], config['mask_value'], tokens)
+        config  = file_mgr.load_config()
+        tokens  = file_mgr.load_tokens()
+        y_codec = AsciiCodec(config['seq_len'], config['mask_value'], tokens)
+        # Hack: config['model'] contains an output_size member, which is the number of categories to predict, but
+        # config.json can't contain this value (since it would have to be updated manually), so we patch it in here.
+        config['model']['output_size'] = len(tokens)
         # Find and save hyperparameters.
         K.set_learning_phase(1)
         X, y   = file_mgr.load_training(model_name, y_codec, max_records=config['batch_size'])

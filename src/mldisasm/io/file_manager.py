@@ -179,7 +179,7 @@ class FileManager:
         '''
         return self._qualify(name, FileManager._validation_name)
 
-    def _do_load_training(self, file, y_codec, block_size, max_records):
+    def _do_load_training(self, file, y_codec, block_size, max_records, line_num=1):
         '''
         Load up to `max_records` from `file` using blocks of `block_size` bytes.
         :returns: A tuple of the training inputs and labels, or None if there are no records left in the file.
@@ -213,6 +213,7 @@ class FileManager:
             y = [None]*num_lines
             len_lines = 0
             for i in range(num_lines):
+                line_num += i
                 len_lines += len(lines[i]) + 1 # +1 to account for newline stripped by str.split().
                 try:
                     X[i], y[i] = ujson.loads(lines[i])
@@ -222,40 +223,60 @@ class FileManager:
                     #  * ValueError: if ujson.loads returns an object with too many or too few values to
                     #    unpack.
                     log.debug(lines[i])
-                    raise TrainingSetError('Training set error: {}'.format(' '.join(e.args))) from e
+                    raise TrainingSetError('training:{}: {}'.format(line_num, ' '.join(e.args))) from e
             file.seek(file_pos + len_lines)
             return tf.stack(X), tf.stack(y_codec.onehotify(y))
 
-    def load_training(self, name, codec, block_size=65536, max_records=np.inf):
+    def load_training(self, name, y_codec, block_size=65536, max_records=np.inf):
         '''
         Load (up to) an entire JSON training set into memory at once.
         :param name: The model name.
+        :param y_codec: An AsciiCodec.
+        :param block_size: The amount of data to read at once. Affects I/O performance but probably isn't critical.
+        Default is 64K.
         :param max_records: The maximum number of records to load. Default: infinity, which means load everything.
-        :param block_size: The amount of data to read at once.
         :returns: A tuple of the training inputs and targets.
         '''
         with self.open_training(name) as file:
-            return self._do_load_training(file, codec, block_size, max_records)
+            return self._do_load_training(file, y_codec, block_size, max_records)
 
-    def yield_training(self, name, y_codec, batch_size, block_size=65536, max_records=np.inf):
+    def yield_training(self, name, y_codec, batch_size, block_size=65535, max_records=np.inf, keras_mode=False):
         '''
         Yield training samples in batches.
         :param name: The name of the training set.
+        :param y_codec: An AsciiCodec.
         :param batch_size: The number of records in each batch. The actual size of a batch may be smaller than
         batch_size if there are fewer records in the file, or max_records is smaller than batch_size.
         :param block_size: How many bytes to load from the file at once. This can effect performance, but not the number
         of records returned - more than one block will be read if necessary.
         :param max_records: The maximum number of records to load. Overrides batch_size if max_records is smaller.
         Default value is infinity, which means load up to batch_size or the entire file, whichever is smaller.
-        :returns: A tuple of the training inputs and targets.
+        :param keras_mode: If True, the generator loops over the training set indefinitely. Default is False.
+        :yields: A tuple of the training inputs and targets.
         '''
         with self.open_training(name) as file:
+            batch_num   = 0
+            num_records = max_records
             while True:
-                batch_size = min(batch_size, max_records)
-                Xy         = self._do_load_training(file, y_codec, block_size, batch_size)
+                # Load the next batch.
+                batch_size = min(batch_size, num_records)
+                batch_num += 1
+                Xy = self._do_load_training(file, y_codec, block_size, batch_size, line_num=batch_num*batch_size)
+                # Break or reset if we reached EOF.
                 if not Xy:
-                    break
+                    if not keras_mode:
+                        break
+                    # keras.Sequential.fit_generator requires that the generator loop over its data repeatedly. This
+                    # breaks Python generator semantics (generators are single-use) but never mind.
+                    log.debug('Restarting training file generator')
+                    file.seek(0)
+                    batch_num   = 0
+                    num_records = max_records
+                    continue
+                # Check & yield results.
                 X, y = Xy
+                assert len(X.shape) == 3
+                assert len(y.shape) == 3
                 assert X.shape[0] == y.shape[0]
                 max_records -= int(X.shape[0])
                 yield X, y
@@ -263,6 +284,9 @@ class FileManager:
     def yield_validation(self, name, y_codec):
         '''
         Yield validation samples one at a time.
+        :param name: The model name.
+        :param y_codec: The AsciiCodec.
+        :yields: A single pair of validation inputs and targets.
         '''
         with self.open_validation(name) as file:
             for line in file:
@@ -284,6 +308,7 @@ class FileManager:
         :param kwargs: Keyword arguments for open(). Note: Any 'newline' key will be overridden with the value of '\n'.
         :returns: An open handle to the training set file.
         '''
+        kwargs['newline'] = '\n'
         return open(self._qualify_training(name), 'r', *args, **kwargs)
 
     def open_training_raw(self, name, *args, **kwargs):

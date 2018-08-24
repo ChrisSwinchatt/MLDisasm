@@ -18,8 +18,8 @@ class TokenList:
         Initialise TokenList.
         :param file: A filename or a handle to a readable file.
         '''
-        tokens = set()
         with prof('Read {} unique tokens', lambda: len(tokens), resources=['time','memory']):
+            tokens = set()
             if isinstance(file, str):
                 file = open(file, 'r')
             if not hasattr(file, 'readable') or not file.readable():
@@ -27,7 +27,9 @@ class TokenList:
             # Read the tokens.
             for line in file:
                 tokens.add(line[:-1]) # Remove trailing newline.
+            # Convert to sorted list and append empty token for masked values.
             self._tokens = sorted(tokens)
+            self._tokens.append('')
             self._tensor = None
 
     def index(self, token):

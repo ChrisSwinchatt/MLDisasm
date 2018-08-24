@@ -22,7 +22,7 @@ import tensorflow.keras.backend as K
 from   mldisasm.io.codec        import AsciiCodec, BytesCodec
 from   mldisasm.io.file_manager import FileManager
 import mldisasm.io.log          as     log
-from   mldisasm.model           import make_disassembler
+from   mldisasm.model           import Disassembler
 
 if __name__ == '__main__':
     # Read the command line.
@@ -41,14 +41,14 @@ if __name__ == '__main__':
     y_codec    = AsciiCodec(seq_len, mask_value, tokens)
     # NB: Creating a new model and loading the weights into it works around a bug in keras.models.load_model(). This
     # will fail if the model configuration (number of units or layers) changes between saving and loading the model.
-    model = make_disassembler(**config['model'])
+    model = Disassembler(**config['model'])
     model.load_weights(file_mgr._qualify_model(model_name))
     # Perform validation.
     sample  = 1
     losses = []
     session = K.get_session()
     with session.as_default():
-        for X, y_true in file_mgr.yield_validation(model_name):
+        for X, y_true in file_mgr.yield_validation(model_name, y_codec):
             # Convert to NumPy arrays.
             X       = np.asarray([X])
             y_true  = np.asarray([y_true])

@@ -20,7 +20,7 @@ from   mldisasm.benchmarks.profiling import prof
 from   mldisasm.io.codec             import AsciiCodec
 import mldisasm.io.log               as     log
 from   mldisasm.io.file_manager      import FileManager
-from   mldisasm.model                import make_disassembler
+from   mldisasm.model                import Disassembler
 
 def train_batch(model, X, y, epoch, num_epochs, batch_num, max_batches):
     '''
@@ -76,7 +76,7 @@ def train_model(file_mgr, config, codec, name):
     params = config['model']
     log.info('Training model with parameters {}'.format(params))
     K.set_learning_phase(1)
-    model      = make_disassembler(**params)
+    model      = Disassembler(**params)
     num_epochs = 1#params['epochs']
     # NB: Loss doesn't decrease significantly after the first epoch.
     for epoch in range(1, num_epochs + 1):
@@ -92,7 +92,7 @@ def train_model(file_mgr, config, codec, name):
                 del model
                 K.clear_session()
                 gc.collect()
-                model = make_disassembler(**params)
+                model = Disassembler(**params)
                 model.load_weights(filepath)
     return model
 

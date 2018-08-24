@@ -117,10 +117,10 @@ class AsciiCodec(Codec):
         # the "hot" element to be the one with the largest value (argmax).
         tokens = [None]*len(tensor)
         for i in range(len(tensor)):
-            idx = np.argmax(tensor[i])
+            idx       = np.argmax(tensor[i])
             tokens[i] = self._tokens[idx]
         # Join tokens into string and remove trailing whitespace.
-        return ''.join(tokens).rstrip()
+        return ' '.join(tokens).rstrip()
 
 class BytesCodec(Codec):
     '''

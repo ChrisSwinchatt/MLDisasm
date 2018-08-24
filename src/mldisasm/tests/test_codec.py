@@ -54,7 +54,7 @@ def test_ascii_codec():
         enter_test_iter()
         string  = random_tokens()
         encoded = codec.encode(string)
-        decoded = ' '.join(codec.decode(encoded)).rstrip()
+        decoded = codec.decode(encoded)
         assert string == decoded
         leave_test_iter()
     leave_test()
