@@ -1,13 +1,22 @@
+diff --git a/python/keras/engine/__pycache__/training_generator.cpython-36.pyc b/python/keras/engine/__pycache__/training_generator.cpython-36.pyc
+index ba4029e..e093788 100644
+Binary files a/python/keras/engine/__pycache__/training_generator.cpython-36.pyc and b/python/keras/engine/__pycache__/training_generator.cpython-36.pyc differ
 diff --git a/python/keras/engine/training_generator.py b/python/keras/engine/training_generator.py
-index 4f27819..9130f76 100644
+index 11f7c16..cc3ebc7 100644
 --- a/python/keras/engine/training_generator.py
 +++ b/python/keras/engine/training_generator.py
-@@ -183,7 +183,7 @@ def fit_generator(model,
+@@ -191,11 +191,11 @@ def fit_generator(model,
+         # build batch logs
+         batch_logs = {}
+         if isinstance(x, list):
+-          batch_size = x[0].shape[0]
++          batch_size = int(x[0].shape[0])
+         elif isinstance(x, dict):
+-          batch_size = list(x.values())[0].shape[0]
++          batch_size = int(list(x.values())[0].shape[0])
          else:
-           batch_size = x.shape[0]
+-          batch_size = x.shape[0]
++          batch_size = int(x.shape[0])
          batch_logs['batch'] = batch_index
--        batch_logs['size'] = batch_size
-+        batch_logs['size'] = int(batch_size)
+         batch_logs['size'] = batch_size
          callbacks.on_batch_begin(batch_index, batch_logs)
-
-         outs = model.train_on_batch(
