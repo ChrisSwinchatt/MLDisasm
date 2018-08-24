@@ -6,6 +6,9 @@ Common stuff for benchmarking.
 
 import numpy as np
 
+# Model to use when benchmarking.
+MODEL_NAME = 'att'
+
 # Number of iterations to benchmark.
 BENCH_ITER  = 100
 
@@ -13,15 +16,16 @@ class BenchmarkResult:
     '''
     Benchmark result.
     '''
-    def __init__(self, name, samples, unit=None):
+    def __init__(self, name, samples, unit='ms'):
         '''
         Initialise BenchmarkResult.
         :param name: The name of the benchmark.
         :param samples: The time samples.
+        :param unit: The unit. Default is 'ms'. If None, no unit is displayed.
         '''
         self.name    = name
         self.samples = sorted(samples)
-        self.unit    = unit if unit is not None else ''
+        self.unit    = '' if unit is None else unit
 
     @property
     def best(self):

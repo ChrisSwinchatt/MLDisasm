@@ -35,7 +35,7 @@ def run():
     '''
     file_mgr = FileManager()
     results  = []
-    with file_mgr.open_training('att') as file:
+    with file_mgr.open_training(MODEL_NAME) as file:
         for name in MODULES:
             try:
                 module = importlib.import_module(name)
