@@ -16,11 +16,12 @@ if __name__ == '__main__':
 import tensorflow               as tf
 import tensorflow.keras.backend as K
 
-from   mldisasm.util.prof import prof
-from   mldisasm.io.codec             import AsciiCodec
-import mldisasm.util.log               as     log
-from   mldisasm.io.file_manager      import FileManager
-from   mldisasm.model                import Disassembler
+from   mldisasm.fixes           import fix_output_size
+from   mldisasm.io.codec        import AsciiCodec
+from   mldisasm.io.file_manager import FileManager
+from   mldisasm.model           import Disassembler
+import mldisasm.util.log        as     log
+from   mldisasm.util.prof       import prof
 
 def train_batch(model, X, y, epoch, num_epochs, batch_num, max_batches):
     '''
@@ -117,6 +118,8 @@ if __name__ == '__main__':
         config = file_mgr.load_config()
         tokens = file_mgr.load_tokens()
         codec  = AsciiCodec(config['seq_len'], config['mask_value'], tokens)
+        # Apply output_size workaround.
+        fix_output_size(config, tokens)
         # Train model on whole dataset.
         model = train_model(file_mgr, config, codec, model_name)
         file_mgr.save_model(model, model_name)

@@ -25,11 +25,12 @@ import tensorflow               as tf
 import tensorflow.keras         as keras
 import tensorflow.keras.backend as K
 
-from   mldisasm.util.prof import prof
-from   mldisasm.io.codec             import AsciiCodec
-import mldisasm.util.log               as     log
-from   mldisasm.io.file_manager      import FileManager
-from   mldisasm.model                import Disassembler
+from   mldisasm.fixes           import fix_output_size
+from   mldisasm.io.codec        import AsciiCodec
+from   mldisasm.io.file_manager import FileManager
+from   mldisasm.model           import Disassembler
+import mldisasm.util.log        as     log
+from   mldisasm.util.prof       import prof
 
 def parameter_grid(params):
     '''
@@ -148,9 +149,8 @@ if __name__ == '__main__':
         config  = file_mgr.load_config()
         tokens  = file_mgr.load_tokens()
         y_codec = AsciiCodec(config['seq_len'], config['mask_value'], tokens)
-        # Hack: config['model'] contains an output_size member, which is the number of categories to predict, but
-        # config.json can't contain this value (since it would have to be updated manually), so we patch it in here.
-        config['model']['output_size'] = len(tokens)
+        # Apply output_size workaround.
+        fix_output_size(config, tokens)
         # Find and save hyperparameters.
         K.set_learning_phase(1)
         X, y   = file_mgr.load_training(model_name, y_codec, max_records=config['batch_size'])

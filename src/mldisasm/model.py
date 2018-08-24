@@ -65,7 +65,7 @@ class Disassembler(keras.Sequential):
         # Append LSTM layers.
         for _ in range(self.params['lstm_layers']):
             self.add(keras.layers.LSTM(
-                units             = hidden_size,
+                units             = self.params['hidden_size'],
                 activation        = self.params['lstm_activation'],
                 dropout           = self.params['lstm_dropout'],
                 use_bias          = self.params['lstm_use_bias'],
@@ -75,7 +75,7 @@ class Disassembler(keras.Sequential):
             ))
         # Append dense layer.
         self.add(keras.layers.Dense(
-            output_size,
+            self.params['output_size'],
             self.params['dense_activation']
         ))
         # Append softmax layer.
@@ -100,24 +100,3 @@ class Disassembler(keras.Sequential):
             self.params['loss'],
             metrics=self.params['metrics']
         )
-
-    def train_on_batch(self, *args, **kwargs):
-        '''
-        Trace calls to Sequential.train_on_batch().
-        '''
-        log.debug(self.train_on_batch.__name__)
-        return super().train_on_batch(*args, **kwargs)
-
-    def fit(self, *args, **kwargs):
-        '''
-        Trace calls to Sequential.fit().
-        '''
-        log.debug(self.fit.__name__)
-        return super().fit(*args, **kwargs)
-
-    def fit_generator(self, *args, **kwargs):
-        '''
-        Trace calls to Sequential.fit_generator().
-        '''
-        log.debug(self.fit_generator.__name__)
-        return super().fit_generator(*args, **kwargs)
