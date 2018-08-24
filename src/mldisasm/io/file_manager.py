@@ -13,8 +13,8 @@ import tensorflow.keras as keras
 
 import ujson
 
-from   mldisasm.benchmarks.profiling import prof
-import mldisasm.io.log               as     log
+from   mldisasm.util.prof import prof
+import mldisasm.util.log               as     log
 from   mldisasm.io.token_list        import TokenList
 
 class TrainingSetError(Exception):

@@ -23,7 +23,7 @@ import tensorflow.keras.backend as K
 
 from   mldisasm.io.codec        import AsciiCodec, BytesCodec
 from   mldisasm.io.file_manager import FileManager
-import mldisasm.io.log          as     log
+import mldisasm.util.log          as     log
 from   mldisasm.model           import Disassembler
 
 if __name__ == '__main__':

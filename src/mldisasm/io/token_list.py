@@ -6,8 +6,8 @@ MLDisasm token list.
 
 import tensorflow as tf
 
-from   mldisasm.benchmarks.profiling import prof
-import mldisasm.io.log               as     log
+from   mldisasm.util.prof import prof
+import mldisasm.util.log               as     log
 
 class TokenList:
     '''

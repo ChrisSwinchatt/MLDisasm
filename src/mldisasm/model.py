@@ -8,7 +8,7 @@ import inspect
 
 import tensorflow.keras as keras
 
-import mldisasm.io.log as log
+import mldisasm.util.log as log
 
 class Disassembler(keras.Sequential):
     '''

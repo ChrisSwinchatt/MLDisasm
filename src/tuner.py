@@ -25,9 +25,9 @@ import tensorflow               as tf
 import tensorflow.keras         as keras
 import tensorflow.keras.backend as K
 
-from   mldisasm.benchmarks.profiling import prof
+from   mldisasm.util.prof import prof
 from   mldisasm.io.codec             import AsciiCodec
-import mldisasm.io.log               as     log
+import mldisasm.util.log               as     log
 from   mldisasm.io.file_manager      import FileManager
 from   mldisasm.model                import Disassembler
 

@@ -13,7 +13,7 @@ import ujson
 
 from   mldisasm.io.codec        import AsciiCodec, BytesCodec
 from   mldisasm.io.file_manager import FileManager
-import mldisasm.io.log          as     log
+import mldisasm.util.log          as     log
 
 REPORT_STEP = 10000
 
