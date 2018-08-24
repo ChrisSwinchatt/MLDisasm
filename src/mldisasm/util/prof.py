@@ -237,6 +237,7 @@ class Profiler:
             assert exc_value is not None
             assert exc_tb is not None
             log.warning('Exception \'{}\' raised in context managed by Profiler'.format(exc_type.__name__))
+            self.ended = True
         return None
 
     def end(self):
