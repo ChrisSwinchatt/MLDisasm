@@ -1,0 +1,13 @@
+diff --git a/python/keras/engine/training_generator.py b/python/keras/engine/training_generator.py
+index 4f27819..9130f76 100644
+--- a/python/keras/engine/training_generator.py
++++ b/python/keras/engine/training_generator.py
+@@ -183,7 +183,7 @@ def fit_generator(model,
+         else:
+           batch_size = x.shape[0]
+         batch_logs['batch'] = batch_index
+-        batch_logs['size'] = batch_size
++        batch_logs['size'] = int(batch_size)
+         callbacks.on_batch_begin(batch_index, batch_logs)
+
+         outs = model.train_on_batch(
