@@ -233,7 +233,11 @@ class Profiler:
         '''
         if not self.ended:
             self.end()
-        return self
+        if exc_type is not None:
+            assert exc_value is not None
+            assert exc_tb is not None
+            log.warning('Exception \'{}\' raised in context managed by Profiler'.format(exc_type.__name__))
+        return None
 
     def end(self):
         '''
@@ -272,7 +276,7 @@ class Profiler:
         else:
             raise ValueError('Unknown log level \'{}\''.format(self.log_level))
 
-def prof(end_msg=None, *args, start_msg=None, **kwargs):
+def prof(end_msg, *args, start_msg=None, **kwargs):
     '''
     Create a profiler which reports when it goes out of scope, leaves its context, or you call its "end" method
     explicitly. See Profiler.__init__() for parameter info.
