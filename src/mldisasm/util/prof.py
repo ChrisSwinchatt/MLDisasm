@@ -204,7 +204,7 @@ class Profiler:
         self.end_msg   = end_msg
         self.log_level = log_level
         self.ended     = False
-        self.profilers = []
+        self.profilers = dict()
         for resource in resources:
             if resource not in _RESOURCE_PROFILERS:
                 raise ValueError('Can\'t profile unknown resource \'{}\'. Known resources: \'{}\''.format(
@@ -212,7 +212,7 @@ class Profiler:
                     '\', \''.join(_RESOURCE_PROFILERS.keys())
                 ))
             prof_class = _RESOURCE_PROFILERS[resource]
-            self.profilers.append(prof_class())
+            self.profilers[resource] = prof_class()
         # Print start message if any.
         if start_msg:
             self._print(start_msg)
@@ -255,7 +255,7 @@ class Profiler:
             tmp = (*tmp, arg)
         args = tmp
         # Append profiler messages, filtering out empty strings.
-        msg = msg + ', ' + ', '.join(filter(lambda x: x, map(str, self.profilers)))
+        msg = msg + ', ' + ', '.join(filter(lambda x: x, map(str, self.profilers.values())))
         # Print the message and set the 'ended' flag.
         self._print(msg.format(*args))
         self.ended = True
