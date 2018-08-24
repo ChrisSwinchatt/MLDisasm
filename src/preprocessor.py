@@ -7,8 +7,9 @@ Usage: {0} <model name>
 '''
 
 import multiprocessing as mp
-import json
 import sys
+
+import ujson
 
 from   mldisasm.io.codec        import AsciiCodec, BytesCodec
 from   mldisasm.io.file_manager import FileManager
@@ -34,19 +35,16 @@ def pp_encode(record, x_codec, y_codec):
     :param y_codec: An AsciiCodec.
     :returns: A JSON encoded tuple of the input vector and a one-hot encoded matrix.
     '''
-    # Parse record into inputs and targets.
-    elems  = record.split(DELIMITER)
+    elems = record.split(DELIMITER)
     if len(elems) != 2:
         raise ValueError('training:{}: Bad training example: {}'.format(record_num, record))
     target       = elems[1]
-    # Encode opcode (inputs).
     opcode       = int(elems[0], 16)
     opcode_len   = int(0.5 + len(elems[0])/CHARS_PER_BYTE)
     opcode_bytes = opcode.to_bytes(opcode_len, 'little')
     inputs       = x_codec.encode(opcode_bytes, as_tensor=False)
-    # Encode target indices as one-hot vectors.
-    targets  = y_codec.encode(target, as_tensor=False)
-    return json.dumps([inputs,targets])
+    targets      = y_codec.encode_lite(target,  as_tensor=False)
+    return ujson.dumps([inputs,targets])
 
 def write_available_results(results, tset_out, record_num):
     '''

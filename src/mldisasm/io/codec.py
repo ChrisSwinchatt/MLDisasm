@@ -8,7 +8,8 @@ from abc import ABCMeta, abstractmethod
 
 import numpy as np
 
-import tensorflow as tf
+import tensorflow       as tf
+import tensorflow.keras as keras
 
 import mldisasm.io.log as log
 
@@ -43,20 +44,19 @@ def _recursive_map(f, t, *args, axis=0, **kwargs):
 
 class AsciiCodec(Codec):
     '''
-    Encode ASCII as token indices, or decode token indices into ASCII.
+    Encode ASCII as one-hot vectors, or decode one-hot vectors into ASCII.
     '''
     def __init__(self, seq_len, mask_value, tokens):
         self._seq_len    = seq_len
         self._mask_value = mask_value
         self._tokens     = tokens
 
-    def encode(self, seq, as_tensor=True):
+    def encode_lite(self, seq, as_tensor=True):
         '''
-        Encodes the contents of an ASCII string as a vector of token indices.
-        :param s: The ASCII string.
-        :param checked: Set to True if the input has already been checked for validity.
+        Encode an ASCII string as a vector of token indices.
+        :param seq: The ASCII string.
         :param as_tensor: Whether to encode to a tensor or return a list.
-        :returns: A tensor with one element per token in the string.
+        :returns: A tensor with one index per token in the string.
         '''
         # Check parameter.
         if not isinstance(seq, str):
@@ -65,40 +65,62 @@ class AsciiCodec(Codec):
             raise ValueError('Received empty string')
         # Tokenise the string and convert TokenList indices to reals between 0 and 1.
         tokens  = self._tokens.tokenize(seq)
-        indices = [[float(self._tokens.index(t))/len(self._tokens)] for t in tokens]
-        # Pad to seq_len and convert to tensor.
+        indices = [[self._tokens.index(t)] for t in tokens]
+        if as_tensor:
+            return tf.convert_to_tensor(indices)
+        # Pad to seq_len.
         if len(indices) > self._seq_len:
             log.warning('Expected {} elements or fewer, got {}'.format(self._seq_len, len(indices)))
         while len(indices) < self._seq_len:
             indices.append([self._mask_value])
-        if as_tensor:
-            return tf.convert_to_tensor(indices)
         return indices
+
+    def onehotify(self, indices):
+        '''
+        Convert a vector of token indices to a one-hot matrix.
+        :param indices: A vector containing the indices.
+        :returns: A one-hot matrix.
+        '''
+        return keras.utils.to_categorical(indices, len(self._tokens))
+
+    def encode(self, seq, as_tensor=True):
+        '''
+        Encodes the contents of an ASCII string as a one-hot matrix.
+        :param seq: The ASCII string.
+        :param as_tensor: Whether to encode as a tensor or a list.
+        :returns: A one-hot matrix representing the ASCII string.
+        '''
+        indices = self.encode_lite(seq, as_tensor=False)
+        onehot  = self.onehotify(indices)
+        if as_tensor:
+            return tf.convert_to_tensor(onehot)
+        return onehot
 
     def decode(self, tensor):
         '''
         Decode a tensor of token indices into an ASCII string tensor.
-        :param tensor: A 3D tensor of shape (batch_size,seq_len,1) containing the token indices.
+        :param tensor: A 3D tensor or NumPy array of shape (batch_size,seq_len,1) containing the token indices.
         :returns: A list of strings, one per sample in the tensor.
         '''
-        # Check parameters.
-        if not isinstance(tensor, tf.Tensor) and not isinstance(tensor, np.ndarray):
+        # Check type and evaluate into NumPy array if needed.
+        if isinstance(tensor, tf.Tensor):
+            tensor = tensor.eval()
+        elif not isinstance(tensor, np.ndarray):
             raise TypeError('Expected Tensor or ndarray, not {}'.format(type(tensor).__name__))
-        # Convert real valued outputs into NumPy array of TokenList indices.
-        batch = tf.cast(tf.round(tensor*len(self._tokens)), tf.int32).eval()
-        assert isinstance(batch, np.ndarray)
-        # Convert indices into tokens. Each row in the tensor contains the indices for a single string.
-        strings = [None]*len(batch)
-        for i, sample in enumerate(batch):
-            indices    = sample.reshape(len(sample))
-            strings[i] = ' '.join(map(
-                lambda idx: self._tokens[idx],
-                filter(
-                    lambda idx: idx != self._mask_value,
-                    indices
-                )
-            ))
-        return strings
+        # Check dimensions. Fail if we don't have two or more. Map over tensor if we have more than two.
+        ndims = len(tensor.shape)
+        if ndims > 2:
+            return list(map(self.decode, tensor))
+        if ndims < 2:
+            raise ValueError('Expected at least two dimensions, got {}'.format(ndims))
+        # Convert one-hot vectors into tokens. The vectors returned by the model will contain probabilities; we consider
+        # the "hot" element to be the one with the largest value (argmax).
+        tokens = [None]*len(tensor)
+        for i in range(len(tensor)):
+            idx = np.argmax(tensor[i])
+            tokens[i] = self._tokens[idx]
+        # Join tokens into string and remove trailing whitespace.
+        return ''.join(tokens).rstrip()
 
 class BytesCodec(Codec):
     '''

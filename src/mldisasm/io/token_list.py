@@ -19,7 +19,7 @@ class TokenList:
         :param file: A filename or a handle to a readable file.
         '''
         tokens = set()
-        with prof('Read {} unique tokens', lambda: len(tokens)):
+        with prof('Read {} unique tokens', lambda: len(tokens), resources=['time','memory']):
             if isinstance(file, str):
                 file = open(file, 'r')
             if not hasattr(file, 'readable') or not file.readable():

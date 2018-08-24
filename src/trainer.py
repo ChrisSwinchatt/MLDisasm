@@ -17,6 +17,7 @@ import tensorflow               as tf
 import tensorflow.keras.backend as K
 
 from   mldisasm.benchmarks.profiling import prof
+from   mldisasm.io.codec             import AsciiCodec
 import mldisasm.io.log               as     log
 from   mldisasm.io.file_manager      import FileManager
 from   mldisasm.model                import make_disassembler
@@ -49,7 +50,7 @@ def train_batch(model, X, y, epoch, num_epochs, batch_num, max_batches):
     # Exit the context before returning loss so prof can print the loss.
     return loss
 
-def train_epoch(file_mgr, config, model, name, epoch):
+def train_epoch(file_mgr, config, codec, model, name, epoch):
     '''
     Train a single epoch.
     '''
@@ -61,14 +62,14 @@ def train_epoch(file_mgr, config, model, name, epoch):
     ):
         max_batches = config['max_records']//config['batch_size']
         batch_num   = 1
-        for X, y in file_mgr.yield_training(name, config['batch_size']):
+        for X, y in file_mgr.yield_training(name, codec, config['batch_size']):
             loss = train_batch(model, X, y, epoch, num_epochs, batch_num, max_batches)
             batch_num += 1
             del X, y
             gc.collect()
     return loss
 
-def train_model(config, name, file_mgr):
+def train_model(file_mgr, config, codec, name):
     '''
     Train a model.
     '''
@@ -79,7 +80,7 @@ def train_model(config, name, file_mgr):
     num_epochs = 1#params['epochs']
     # NB: Loss doesn't decrease significantly after the first epoch.
     for epoch in range(1, num_epochs + 1):
-        train_epoch(file_mgr, config, model, name, epoch)
+        train_epoch(file_mgr, config, codec, model, name, epoch)
         # At the end of the epoch, save the model to disk, clear the graph, and then load the model back. This fixes a
         # performance problem caused by the execution graph growing in each batch and the fact that TensorFlow evaluates
         # the entire graph when tf.Session.run() is called, resulting in execution becoming exponentially slower.
@@ -114,8 +115,10 @@ if __name__ == '__main__':
     try:
         # Load configuration,
         config = file_mgr.load_config()
+        tokens = file_mgr.load_tokens()
+        codec  = AsciiCodec(config['seq_len'], config['mask_value'], tokens)
         # Train model on whole dataset.
-        model = train_model(config, model_name, file_mgr)
+        model = train_model(file_mgr, config, codec, model_name)
         file_mgr.save_model(model, model_name)
     except Exception as e:
         log.debug('====================[ UNCAUGHT EXCEPTION ]====================')

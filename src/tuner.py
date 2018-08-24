@@ -26,6 +26,7 @@ import tensorflow.keras         as keras
 import tensorflow.keras.backend as K
 
 from   mldisasm.benchmarks.profiling import prof
+from   mldisasm.io.codec             import AsciiCodec
 import mldisasm.io.log               as     log
 from   mldisasm.io.file_manager      import FileManager
 from   mldisasm.model                import make_disassembler
@@ -54,7 +55,7 @@ def cv_split(X, y):
     y_train, y_test = tf.split(y, 2)
     return X_train, y_train, X_test, y_test
 
-def fit_model(params, X, y):
+def fit_model(params, generator, num_batches):
     '''
     Fit a model to a set of parameters and return the loss during cross-validation.
     '''
@@ -65,10 +66,6 @@ def fit_model(params, X, y):
     # problems and increasingly slow training when we fit successive models. This gives us a clean graph for each model.
     K.clear_session()
     gc.collect()
-    # Create cross-validation split.
-    X = tf.stack(X)
-    y = tf.stack(y)
-    X_train, y_train, X_test, y_test = cv_split(X, y)
     # Append training callbacks.
     callbacks = []
     if params.get('stop_early', False):
@@ -76,9 +73,16 @@ def fit_model(params, X, y):
             monitor='val_loss',
             patience=params.get('patience', 0)
         ))
-    # Train the model.
+    # Train and validate the model on alternating batches.
     model   = make_disassembler(**params)
-    history = model.fit(
+    history = model.fit_generator(
+        generator        = generator,
+        validation_data  = generator,
+        steps_per_epoch  = num_batches//2,
+        validation_steps = num_batches//2,
+        epochs           = params['epochs']
+    )
+    '''
         X_train,
         y_train,
         steps_per_epoch  = 1,
@@ -87,10 +91,11 @@ def fit_model(params, X, y):
         validation_steps = 1,
         callbacks        = callbacks
     )
+    '''
     # Return the final validation loss.
     return history.history['val_loss'][-1]
 
-def select_params(config, X, y):
+def select_params(config, file_mgr, model_name, y_codec):
     '''
     Select hyperparameters by gridsearch with cross-validation.
     '''
@@ -103,7 +108,7 @@ def select_params(config, X, y):
     num_fits    = len(grid)
     best_params = None
     best_loss   = np.inf
-    loss         = 0
+    loss        = 0
     for grid_params in grid:
         with prof(
             'Fit grid {} with loss={}', fit_num, lambda: loss,
@@ -112,7 +117,12 @@ def select_params(config, X, y):
         ):
             params = dict(config['model'])
             params.update(grid_params)
-            loss = fit_model(params, X, y)
+            generator = file_mgr.yield_training(
+                model_name,
+                y_codec,
+                config['batch_size']
+            )
+            loss = fit_model(params, generator, config['gs_batches'])
             if loss < best_loss:
                 best_loss   = loss
                 best_params = params
@@ -141,10 +151,12 @@ if __name__ == '__main__':
     try:
         # Load configuration and set TF device.
         config = file_mgr.load_config()
+        tokens = file_mgr.load_tokens()
+        y_codec  = AsciiCodec(config['seq_len'], config['mask_value'], tokens)
         # Find and save hyperparameters.
         K.set_learning_phase(1)
-        X, y   = file_mgr.load_training(model_name, max_records=config['batch_size'])
-        params = select_params(config, X, y)
+        X, y   = file_mgr.load_training(model_name, y_codec, max_records=config['batch_size'])
+        params = select_params(config, file_mgr, model_name, y_codec)
         config['model'] = params
         file_mgr.save_config(config)
     except Exception as e:

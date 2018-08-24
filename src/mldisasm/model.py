@@ -52,6 +52,9 @@ def make_disassembler(hidden_size, **kwargs):
         kwargs.get('dense_units', 1),
         kwargs.get('dense_activation', 'sigmoid')
     ))
+    # Append softmax layer.
+    if kwargs.get('use_softmax', False):
+        model.add(keras.layers.Softmax(input_shape=input_shape))
     # Compile and return the model with optimiser and loss function.
     optimizer = kwargs.get('optimizer', 'SGD')
     if hasattr(keras.optimizers, optimizer):
@@ -67,6 +70,7 @@ def make_disassembler(hidden_size, **kwargs):
         optimizer = opt(**opt_params)
     model.compile(
         optimizer,
-        kwargs.get('loss', 'mean_squared_error')
+        kwargs.get('loss', 'mean_squared_error'),
+        metrics=kwargs.get('metrics', 'accuracy')
     )
     return model

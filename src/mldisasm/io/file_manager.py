@@ -4,12 +4,14 @@
 MLDisasm file manager.
 '''
 
-import json
 import os
 
 import numpy as np
 
+import tensorflow       as tf
 import tensorflow.keras as keras
+
+import ujson
 
 from   mldisasm.benchmarks.profiling import prof
 import mldisasm.io.log               as     log
@@ -77,15 +79,15 @@ class FileManager:
         :param kwargs: Keyword arguments for open().
         '''
         with self._open_config(*args, **kwargs) as file:
-            return json.load(file)
+            return ujson.load(file)
 
     def save_config(self, config):
         '''
-        Save a configuration to JSON.
+        Save a configuration to ujson.
         :param config: A configuration.
         '''
         with self._open_config('w', newline='\n') as file:
-            json.dump(config, file, indent=4, )
+            ujson.dump(config, file, indent=4, )
             file.write('\n')
 
     ############################################################################
@@ -177,10 +179,10 @@ class FileManager:
         '''
         return self._qualify(name, FileManager._validation_name)
 
-    def _do_load_training(self, file, block_size, max_records):
+    def _do_load_training(self, file, y_codec, block_size, max_records):
         '''
         Load up to `max_records` from `file` using blocks of `block_size` bytes.
-        :returns: A tuple of the training inputs and labels.
+        :returns: A tuple of the training inputs and labels, or None if there are no records left in the file.
         '''
         num_lines = 0
         with prof('Loaded batch ({} records)', lambda: num_lines, resources=['time','memory']):
@@ -195,6 +197,8 @@ class FileManager:
                 if not block:
                     break
                 data += block
+            if not data:
+                return None
             # Split on newline and discard records above the maximum.
             lines     = data.split('\n')
             num_lines = min(len(lines), max_records)
@@ -211,19 +215,18 @@ class FileManager:
             for i in range(num_lines):
                 len_lines += len(lines[i]) + 1 # +1 to account for newline stripped by str.split().
                 try:
-                    X[i], y[i] = json.loads(lines[i])
-                except (TypeError,ValueError,json.JSONDecodeError) as e:
+                    X[i], y[i] = ujson.loads(lines[i])
+                except (TypeError,ValueError) as e:
                     # Three exceptions can be raised when decoding training samples:
-                    #  * TypeError: if json.loads doesn't return an iterable.
-                    #  * ValueError: if json.loads returns an object with too many or too few values to
+                    #  * TypeError: if ujson.loads doesn't return an iterable.
+                    #  * ValueError: if ujson.loads returns an object with too many or too few values to
                     #    unpack.
-                    #  * JSONDecodeError: if the line doesn't contain a valid JSON object.
                     log.debug(lines[i])
                     raise TrainingSetError('Training set error: {}'.format(' '.join(e.args))) from e
             file.seek(file_pos + len_lines)
-            return X, y
+            return tf.stack(X), tf.stack(y_codec.onehotify(y))
 
-    def load_training(self, name, block_size=65536, max_records=np.inf):
+    def load_training(self, name, codec, block_size=65536, max_records=np.inf):
         '''
         Load (up to) an entire JSON training set into memory at once.
         :param name: The model name.
@@ -232,9 +235,9 @@ class FileManager:
         :returns: A tuple of the training inputs and targets.
         '''
         with self.open_training(name) as file:
-            return self._do_load_training(file, block_size, max_records)
+            return self._do_load_training(file, codec, block_size, max_records)
 
-    def yield_training(self, name, batch_size, block_size=65536, max_records=np.inf):
+    def yield_training(self, name, y_codec, batch_size, block_size=65536, max_records=np.inf):
         '''
         Yield training samples in batches.
         :param name: The name of the training set.
@@ -249,22 +252,23 @@ class FileManager:
         with self.open_training(name) as file:
             while True:
                 batch_size = min(batch_size, max_records)
-                X, y       = self._do_load_training(file, block_size, batch_size)
-                assert len(X) == len(y)
-                if not X:
+                Xy         = self._do_load_training(file, y_codec, block_size, batch_size)
+                if not Xy:
                     break
-                max_records -= len(X)
+                X, y = Xy
+                assert X.shape[0] == y.shape[0]
+                max_records -= int(X.shape[0])
                 yield X, y
 
-    def yield_validation(self, name):
+    def yield_validation(self, name, y_codec):
         '''
         Yield validation samples one at a time.
         '''
         with self.open_validation(name) as file:
             for line in file:
-                record = json.loads(line)
+                record = ujson.loads(line)
                 assert len(record) == 2
-                yield record[0], record[1]
+                yield record[0], y_codec.onehotify(record[1])
 
     def open_validation(self, name):
         '''
@@ -280,8 +284,7 @@ class FileManager:
         :param kwargs: Keyword arguments for open(). Note: Any 'newline' key will be overridden with the value of '\n'.
         :returns: An open handle to the training set file.
         '''
-        kwargs['newline'] = '\n'
-        return open(self._qualify_training(name), *args, **kwargs)
+        return open(self._qualify_training(name), 'r', *args, **kwargs)
 
     def open_training_raw(self, name, *args, **kwargs):
         '''
@@ -303,10 +306,10 @@ class FileManager:
         '''
         return open(self._qualify_training(name), 'w', *args, **kwargs)
 
-    _log_name          = 'mldisasm.log'    # Log filename.
-    _config_name       = 'config.json'     # Config filename.
-    _model_name        = 'model.hdf5'      # Model filename.
-    _training_name     = 'training.json'   # Preprocessed training set filename.
-    _training_raw_name = 'rawtraining.csv' # Raw training set filename.
-    _validation_name   = 'validation.json' # Validation training set filename.
-    _tokens_name       = 'tokens.list'     # Token list filename.
+    _log_name          = 'mldisasm.log'     # Log filename.
+    _config_name       = 'config.json'      # Config filename.
+    _model_name        = 'model.hdf5'       # Model filename.
+    _training_name     = 'training.json'    # Preprocessed training set filename.
+    _training_raw_name = 'rawtraining.csv'  # Raw training set filename.
+    _validation_name   = 'validation.json'  # Validation training set filename.
+    _tokens_name       = 'tokens.list'      # Token list filename.
