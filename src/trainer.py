@@ -66,6 +66,9 @@ def train_epoch(file_mgr, config, codec, model, name, epoch):
         for X, y in file_mgr.yield_training(name, codec, config['batch_size']):
             loss, acc = train_batch(model, X, y, epoch, num_epochs, batch_num, max_batches)
             batch_num += 1
+            # Refresh the graph each ten batches to prevent TF slowdown.
+            if batch_num % 10 == 0:
+                model = refresh_graph(model=model, build_fn=Disassembler, **(config['model']))
     print('Stopping')
     return loss
 
@@ -92,8 +95,6 @@ def train_model(file_mgr, config, codec, name):
                 )
             )
             break
-        if epoch + 1 < num_epochs:
-            refresh_graph(model=model, build_fn=Disassembler, **params)
     return model
 
 def read_command_line():

@@ -30,7 +30,7 @@ from mldisasm.fixes           import fix_output_size
 from mldisasm.io.codec        import AsciiCodec
 from mldisasm.io.file_manager import FileManager
 from mldisasm.model           import Disassembler
-from mldisasm.util            import log, prof
+from mldisasm.util            import log, prof, refresh_graph
 
 RANDOM_SEED = 1
 
@@ -107,6 +107,9 @@ def fit_model(config, params, file_mgr, model_name, y_codec):
                 loss, acc = metrics
             else:
                 raise ValueError('Unrecognised metrics names: {}'.format(','.join(model.metrics_names)))
+            # Refresh the graph each ten batches to prevent TF slowdown.
+            if batch_num % 10 == 0:
+                model = refresh_graph(model=model, build_fn=Disassembler, **params)
             if batch_num >= num_batches:
                 break
             total_loss += loss
