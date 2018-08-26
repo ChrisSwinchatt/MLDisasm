@@ -8,8 +8,6 @@ import inspect
 
 import tensorflow.keras as keras
 
-import mldisasm.util.log as log
-
 class Disassembler(keras.Sequential):
     '''
     Disassembler.

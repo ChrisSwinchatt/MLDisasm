@@ -16,7 +16,7 @@ import ujson
 
 from mldisasm.benchmarks.common import *
 from mldisasm.io.file_manager   import FileManager
-from mldisasm.util.prof         import prof
+from mldisasm.util              import prof
 
 BATCH_SIZE = 100
 

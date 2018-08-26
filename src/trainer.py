@@ -16,12 +16,11 @@ if __name__ == '__main__':
 import tensorflow               as tf
 import tensorflow.keras.backend as K
 
-from   mldisasm.fixes           import fix_output_size
-from   mldisasm.io.codec        import AsciiCodec
-from   mldisasm.io.file_manager import FileManager
-from   mldisasm.model           import Disassembler
-import mldisasm.util.log        as     log
-from   mldisasm.util.prof       import prof
+from mldisasm.fixes           import fix_output_size
+from mldisasm.io.codec        import AsciiCodec
+from mldisasm.io.file_manager import FileManager
+from mldisasm.model           import Disassembler
+from mldisasm.util            import log, prof, refresh_graph
 
 def train_batch(model, X, y, epoch, num_epochs, batch_num, max_batches):
     '''
@@ -93,19 +92,8 @@ def train_model(file_mgr, config, codec, name):
                 )
             )
             break
-        # At the end of the epoch, save the model to disk, clear the graph, and then load the model back. This fixes a
-        # performance problem caused by the execution graph growing in each batch and the fact that TensorFlow evaluates
-        # the entire graph when tf.Session.run() is called, resulting in execution becoming exponentially slower.
         if epoch + 1 < num_epochs:
-            with prof('Reloaded model'):
-                import tempfile
-                filepath = tempfile.mkstemp()
-                model.save_weights(filepath)
-                del model
-                K.clear_session()
-                gc.collect()
-                model = Disassembler(**params)
-                model.load_weights(filepath)
+            refresh_graph(model=model, build_fn=Disassembler, **params)
     return model
 
 def read_command_line():

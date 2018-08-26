@@ -16,9 +16,9 @@ try:
 except ImportError:
     import json
 
-from   mldisasm.util.prof import prof
+from mldisasm.util import prof
 import mldisasm.util.log               as     log
-from   mldisasm.io.token_list        import TokenList
+from mldisasm.io.token_list        import TokenList
 
 class FileManager:
     '''

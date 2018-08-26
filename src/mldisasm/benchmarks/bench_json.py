@@ -9,7 +9,7 @@ import sys
 
 from mldisasm.benchmarks.common import *
 from mldisasm.io.file_manager   import FileManager
-from mldisasm.util.prof         import prof
+from mldisasm.util              import prof
 
 MAX_RECORDS = 1000
 

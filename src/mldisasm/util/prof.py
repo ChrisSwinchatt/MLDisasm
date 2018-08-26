@@ -10,7 +10,7 @@ import os
 import sys
 import time
 
-import mldisasm.util.log as log
+from mldisasm.util import log
 
 try:
     import psutil

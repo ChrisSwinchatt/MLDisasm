@@ -26,12 +26,11 @@ import tensorflow               as tf
 import tensorflow.keras         as keras
 import tensorflow.keras.backend as K
 
-from   mldisasm.fixes           import fix_output_size
-from   mldisasm.io.codec        import AsciiCodec
-from   mldisasm.io.file_manager import FileManager
-from   mldisasm.model           import Disassembler
-import mldisasm.util.log        as     log
-from   mldisasm.util.prof       import prof
+from mldisasm.fixes           import fix_output_size
+from mldisasm.io.codec        import AsciiCodec
+from mldisasm.io.file_manager import FileManager
+from mldisasm.model           import Disassembler
+from mldisasm.util            import log, prof
 
 RANDOM_SEED = 1
 
@@ -67,6 +66,8 @@ def fit_model(config, params, file_mgr, model_name, y_codec):
     random.seed(RANDOM_SEED)
     np.random.seed(RANDOM_SEED)
     tf.set_random_seed(RANDOM_SEED)
+    # Get a fresh TF graph.
+    refresh_graph()
     # Append training callbacks.
     callbacks = []
     if params.get('stop_early', False):
@@ -111,10 +112,6 @@ def fit_model(config, params, file_mgr, model_name, y_codec):
             total_loss += loss
             total_acc  += acc
             batch_num += 1
-    # Clear the graph and collects its memory. Each model adds thousands of nodes to the graph and TensorFlow evaluates
-    # all of them whenever tf.Session.run() is called. This leads to massive performance issues.
-    K.clear_session()
-    gc.collect()
     # Return the average loss and accuracy.
     return total_loss/batch_num, total_acc/batch_num
 

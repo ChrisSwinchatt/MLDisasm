@@ -21,10 +21,10 @@ if __name__ == '__main__':
 import tensorflow               as tf
 import tensorflow.keras.backend as K
 
-from   mldisasm.io.codec        import AsciiCodec, BytesCodec
-from   mldisasm.io.file_manager import FileManager
-import mldisasm.util.log          as     log
-from   mldisasm.model           import Disassembler
+from mldisasm.io.codec        import AsciiCodec, BytesCodec
+from mldisasm.io.file_manager import FileManager
+from mldisasm.util            import log
+from mldisasm.model           import Disassembler
 
 if __name__ == '__main__':
     # Read the command line.

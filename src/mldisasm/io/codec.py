@@ -11,7 +11,7 @@ import numpy as np
 import tensorflow       as tf
 import tensorflow.keras as keras
 
-import mldisasm.util.log as log
+from mldisasm.util import log
 
 # Maximum value of a byte.
 BYTE_MAX  = 0xFF
