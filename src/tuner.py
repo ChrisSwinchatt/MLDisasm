@@ -5,6 +5,7 @@
 
 import gc
 import os
+import random
 import sys
 import traceback as tb
 import warnings
@@ -31,6 +32,8 @@ from   mldisasm.io.file_manager import FileManager
 from   mldisasm.model           import Disassembler
 import mldisasm.util.log        as     log
 from   mldisasm.util.prof       import prof
+
+RANDOM_SEED = 1
 
 def parameter_grid(params):
     '''
@@ -61,7 +64,9 @@ def fit_model(config, params, file_mgr, model_name, y_codec):
     Fit a model to a set of parameters and return the loss during cross-validation.
     '''
     # Seed PRNG with a fixed value so each model gets the same sequence of numbers.
-    np.random.seed(1)
+    random.seed(RANDOM_SEED)
+    np.random.seed(RANDOM_SEED)
+    tf.set_random_seed(RANDOM_SEED)
     # Append training callbacks.
     callbacks = []
     if params.get('stop_early', False):
@@ -73,28 +78,45 @@ def fit_model(config, params, file_mgr, model_name, y_codec):
     generator = file_mgr.yield_training(
         model_name,
         y_codec,
-        config['batch_size'],
+        params['batch_size'],
         keras_mode=True
     )
-    # Train and validate the model on alternating batches.
-    num_batches = config['gs_batches']
-    num_steps   = num_batches//2
+    # Train and validate the model.
     model       = Disassembler(**params)
-    history     = model.fit_generator(
-        generator        = generator,
-        validation_data  = generator,
-        steps_per_epoch  = num_steps,
-        validation_steps = num_steps,
-        epochs           = params['epochs']
-    )
-    loss = history.history['val_loss'][-1]
-    # Clear graph and collect memory from the session. Each model we fit adds thousands of nodes to the graph, and
-    # TensorFlow executes the entire graph whenever tf.Session.run() is called, which results in memory allocation
-    # problems and increasingly slow training when we fit successive models. This gives us a clean graph for each model.
+    num_batches = min(config['gs_records'],config['max_records'])//params['batch_size']
+    total_loss  = 0
+    total_acc   = 0
+    loss        = np.inf
+    acc         = -np.inf
+    batch_num = 1
+    for X, y in generator:
+        with prof(
+            'Batch {}/{}: {}% accuracy, loss={}',
+            batch_num, num_batches, lambda: 100*acc, lambda: loss,
+            log_level='info'
+        ):
+            # Train with cross-validation.
+            X_train, y_train, X_test, y_test = cv_split(X, y)
+            model.train_on_batch(X_train, y_train)
+            metrics = model.test_on_batch(X_test, y_test)
+            # Extract metrics.
+            if model.metrics_names == ['acc','loss']:
+                acc, loss = metrics
+            elif model.metrics_names == ['loss','acc']:
+                loss, acc = metrics
+            else:
+                raise ValueError('Unrecognised metrics names: {}'.format(','.join(model.metrics_names)))
+            if batch_num >= num_batches:
+                break
+            total_loss += loss
+            total_acc  += acc
+            batch_num += 1
+    # Clear the graph and collects its memory. Each model adds thousands of nodes to the graph and TensorFlow evaluates
+    # all of them whenever tf.Session.run() is called. This leads to massive performance issues.
     K.clear_session()
     gc.collect()
-    # Return the final validation loss.
-    return loss
+    # Return the average loss and accuracy.
+    return total_loss/batch_num, total_acc/batch_num
 
 def select_params(config, file_mgr, model_name, y_codec):
     '''
@@ -108,23 +130,25 @@ def select_params(config, file_mgr, model_name, y_codec):
     fit_num     = 1
     num_fits    = len(grid)
     best_params = None
-    best_loss   = np.inf
+    best_acc    = -np.inf
     loss        = 0
+    acc         = 0
     for grid_params in grid:
         with prof(
-            'Fit grid {} with loss={}', fit_num, lambda: loss,
+            'Fit grid {} with {}% accuracy, loss={}', fit_num, lambda: 100*acc, lambda: loss, 4,
             log_level='info',
             start_msg='Fitting grid {} of {} with parameters {}'.format(fit_num, num_fits, grid_params)
         ):
             params = dict(config['model'])
             params.update(grid_params)
-            loss = fit_model(config, params, file_mgr, model_name, y_codec)
-            if loss < best_loss:
-                best_loss   = loss
+            loss, acc = fit_model(config, params, file_mgr, model_name, y_codec)
+            # Select model by accuracy.
+            if acc > best_acc:
+                best_acc = acc
                 best_params = params
             fit_num += 1
     assert best_params is not None
-    log.info('Best loss was {} with parameters {}'.format(best_loss, best_params))
+    log.info('Best accuracy was {}% with parameters {}'.format(round(best_acc*100, 2), best_params))
     return best_params
 
 def read_command_line():
@@ -153,9 +177,8 @@ if __name__ == '__main__':
         fix_output_size(config, tokens)
         # Find and save hyperparameters.
         K.set_learning_phase(1)
-        X, y   = file_mgr.load_training(model_name, y_codec, max_records=config['batch_size'])
-        params = select_params(config, file_mgr, model_name, y_codec)
-        config['model'] = params
+        config['model'] = select_params(config, file_mgr, model_name, y_codec)
+        del config['grid']
         file_mgr.save_config(config)
     except Exception as e:
         log.debug('====================[ UNCAUGHT EXCEPTION ]====================')
