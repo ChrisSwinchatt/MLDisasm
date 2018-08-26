@@ -1,0 +1,60 @@
+#!/bin/bash
+
+# Automates full training process (hyperparameter selection, training and validation).
+
+set -e
+
+here=$(dirname "$0")
+name=$(basename "$0")
+
+if [[ $# -ne 1 ]]; then
+    cat >&2 <<EOF
+Usage: $0 <model>
+
+Train model <model> in three stages: hyperparameter selection, training and validation.
+EOF
+    exit 1
+fi
+
+model_name="$1"
+data_dir="${here}/data"
+log_path="${data_dir}/mldisasm.log"
+config_path="${data_dir}/config.json"
+config_bak="${config_path}~"
+model_dir="${data_dir}/${model_name}"
+log_dir="${model_dir}/logs"
+
+python=$(which python3)
+
+[[ "x${MLD_PYTHON}" != "x" ]] && python="${MLD_PYTHON}"
+
+if [[ ! -x $(which "${python}") ]]; then
+    echo "$0: Python \"${python}\" is not an executable file in the \$PATH" >&2
+    exit 1
+fi
+
+# Stage 1: Hyperparameter selection. grid_dir contains .json files which contain hyperparameters to tune.
+grid_dir="${data_dir}/grids"
+
+for grid in ${grid_dir}/*; do
+    # Back up the previous config.
+    cp   "${config_path}" "${config_bak}"
+    # Append the grid to the config file.
+    tmp_path=$(mktemp)
+    cat  "${config_path}" | head -n -1 >"${tmp_path}"
+    mv   "${tmp_path}" "${config_path}"
+    echo -e ",\n\"grid\":" >>"${config_path}"
+    cat  "${grid}" >>"${config_path}"
+    echo "}" >>"${config_path}"
+    # Select parameters from the grid.
+    "${here}/tune" "${model_name}"
+    # Copy the log file.
+    log_dest="${log_dir}/${grid%.json}.log"
+    cp "${log_path}" "${log_dest}"
+done
+
+# Stage 2: Training.
+"${here}/train" "${model_name}"
+
+# Stage 3: Validation.
+"${python}" "${here}/src/validator.py" "${model_name}"
