@@ -37,6 +37,10 @@ fi
 grid_dir="${data_dir}/grids"
 
 for grid in ${grid_dir}/*; do
+    if [[ ! -x "${grid}" ]]; then
+        echo "$0: Skipping non-executable file ${grid}" >&2
+        continue
+    fi
     # Back up the previous config.
     cp   "${config_path}" "${config_bak}"
     # Append the grid to the config file.
