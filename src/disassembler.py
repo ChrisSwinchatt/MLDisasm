@@ -43,6 +43,7 @@ if __name__ == '__main__':
     x_codec    = BytesCodec(seq_len, mask_value)
     y_codec    = AsciiCodec(seq_len, mask_value, tokens)
     model      = Disassembler(**config['model']) #file_mgr.load_model(model_name)
+    # pylint: disable=protected-access
     model.load_weights(file_mgr._qualify_model(model_name))
     # Process the file in seq_len sized chunks. TODO: Implement sliding window. FIXME: How do we detect instruction
     # boundaries when a block of N bytes could contain anywhere from N/15 to N instructions?

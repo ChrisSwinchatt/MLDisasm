@@ -42,6 +42,7 @@ if __name__ == '__main__':
     # NB: Creating a new model and loading the weights into it works around a bug in keras.models.load_model(). This
     # will fail if the model configuration (number of units or layers) changes between saving and loading the model.
     model = Disassembler(**config['model'])
+    # pylint: disable=protected-access
     model.load_weights(file_mgr._qualify_model(model_name))
     # Perform validation.
     sample  = 1
