@@ -78,22 +78,40 @@ class AsciiCodec(Codec):
     def onehotify(self, indices):
         '''
         Convert a vector of token indices to a one-hot matrix.
-        :param indices: A vector containing the indices.
-        :returns: A one-hot matrix.
+        :param indices: A list or ndarray containing the indices. Negative indices are interpreted as masked values and
+        will produce vectors whose elements are all zeros.
+        :returns: A one-hot encoded matrix (ndarray).
         '''
-        return keras.utils.to_categorical(indices, len(self._tokens))
+        shape = np.shape(indices)
+        # For legacy reasons the indices shape is (batch_size,seq_len,1). To handle arrays with 1, 2 and 3 dimensions
+        # transparently, we map over dim 0 and squeeze out dim 2, so that the indices we actually process has shape
+        # (seq_len,).
+        if len(shape) == 3:
+            return np.asarray(list(map(self.onehotify, indices)))
+        if len(shape) == 2:
+            indices = np.squeeze(indices)
+        onehot = keras.utils.to_categorical(indices, len(self._tokens))
+        # Workaround: Keras interparamsets negative indices as offsets from the end of the vector, so that -1 in a
+        # 4-class vector would produce [0,0,0,1]. We want to interpret negative values as being masked/invalid, so we
+        # patch these values with 0. (tf.one_hot() produces zeroed vectors for negative indices, but we don't want to
+        # return a tensor here.)
+        for i, idx in enumerate(indices):
+            if idx < 0:
+                j = len(onehot[i]) + idx
+                onehot[i,j] = 0
+        return onehot
 
     def encode(self, seq, as_tensor=True):
         '''
         Encodes the contents of an ASCII string as a one-hot matrix.
         :param seq: The ASCII string.
         :param as_tensor: Whether to encode as a tensor or a list.
-        :returns: A one-hot matrix representing the ASCII string.
+        :returns: A one-hot encoded matrix representing the ASCII string.
         '''
         indices = self.encode_lite(seq, as_tensor=False)
         onehot  = self.onehotify(indices)
         if as_tensor:
-            return tf.convert_to_tensor(onehot)
+            onehot = tf.convert_to_tensor(onehot)
         return onehot
 
     def decode(self, tensor):
