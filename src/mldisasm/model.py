@@ -42,6 +42,7 @@ class Disassembler(keras.Sequential):
             'hidden_size':      hidden_size,
             'output_size':      output_size,
             'seq_len':          kwargs.get('seq_len',          None),
+            'use_masking':      kwargs.get('use_masking',      False),
             'mask_value':       kwargs.get('mask_value',       None),
             'lstm_layers':      kwargs.get('lstm_layers',      1),
             'lstm_activation':  kwargs.get('lstm_activation',  'tanh'),
@@ -60,7 +61,7 @@ class Disassembler(keras.Sequential):
         input_shape = (self.params['seq_len'], 1)
         self.add(keras.layers.InputLayer(input_shape))
         # Add masking layer.
-        if self.params['mask_value'] is not None:
+        if self.params['use_masking'] and self.params['mask_value'] is not None:
             self.add(keras.layers.Masking(self.params['mask_value'], input_shape=input_shape))
         # Append LSTM layers.
         for _ in range(self.params['lstm_layers']):

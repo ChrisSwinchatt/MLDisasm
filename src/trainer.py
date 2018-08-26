@@ -28,18 +28,17 @@ def train_batch(model, X, y, epoch, num_epochs, batch_num, max_batches):
     Train a single batch.
     '''
     loss = 0
+    acc  = 0
     with prof(
-        'Epoch {}/{}: Trained batch {}/{} with loss={}',
+        'Epoch {}/{}: Trained batch {}/{} with {}% accuracy, loss={}',
         epoch,
         num_epochs,
         batch_num,
         max_batches,
+        lambda: acc,
         lambda: loss,
         log_level='info'
     ):
-        with tf.device('/cpu:0'):
-            X = tf.stack(X)
-            y = tf.stack(y)
         history = model.fit(
             X,
             y,
@@ -48,8 +47,9 @@ def train_batch(model, X, y, epoch, num_epochs, batch_num, max_batches):
             verbose         = 0
         )
         loss = history.history['loss'][-1]
+        acc  = history.history['acc'][-1]*100
     # Exit the context before returning loss so prof can print the loss.
-    return loss
+    return loss, acc
 
 def train_epoch(file_mgr, config, codec, model, name, epoch):
     '''
@@ -57,17 +57,17 @@ def train_epoch(file_mgr, config, codec, model, name, epoch):
     '''
     num_epochs = config['model']['epochs']
     loss       = 0
+    acc        = 0
     with prof(
-        'Trained epoch {} with final loss={}', lambda: epoch, lambda: loss,
+        'Trained epoch {} with {}% accuracy, final loss={}', lambda: epoch, lambda: acc, lambda: loss,
         log_level='info'
     ):
         max_batches = config['max_records']//config['batch_size']
         batch_num   = 1
         for X, y in file_mgr.yield_training(name, codec, config['batch_size']):
-            loss = train_batch(model, X, y, epoch, num_epochs, batch_num, max_batches)
+            loss, acc = train_batch(model, X, y, epoch, num_epochs, batch_num, max_batches)
             batch_num += 1
-            del X, y
-            gc.collect()
+    print('Stopping')
     return loss
 
 def train_model(file_mgr, config, codec, name):
@@ -78,14 +78,25 @@ def train_model(file_mgr, config, codec, name):
     log.info('Training model with parameters {}'.format(params))
     K.set_learning_phase(1)
     model      = Disassembler(**params)
-    num_epochs = 1#params['epochs']
-    # NB: Loss doesn't decrease significantly after the first epoch.
+    num_epochs = params['epochs']
     for epoch in range(1, num_epochs + 1):
-        train_epoch(file_mgr, config, codec, model, name, epoch)
+        # Allow user to stop training with ^C.
+        try:
+            train_epoch(file_mgr, config, codec, model, name, epoch)
+        except KeyboardInterrupt:
+            log.warning(
+                'Training interrupted at epoch {}/{}, remaining {} epochs will be skipped'\
+                '(press ^C again to quit)'.format(
+                    epoch,
+                    num_epochs,
+                    num_epochs - epoch
+                )
+            )
+            break
         # At the end of the epoch, save the model to disk, clear the graph, and then load the model back. This fixes a
         # performance problem caused by the execution graph growing in each batch and the fact that TensorFlow evaluates
         # the entire graph when tf.Session.run() is called, resulting in execution becoming exponentially slower.
-        if epoch < num_epochs:
+        if epoch + 1 < num_epochs:
             with prof('Reloaded model'):
                 import tempfile
                 filepath = tempfile.mkstemp()
