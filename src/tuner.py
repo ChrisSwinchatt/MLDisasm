@@ -3,7 +3,6 @@
 '''Usage: {0} <model>
 '''
 
-import gc
 import os
 import random
 import sys
@@ -98,6 +97,7 @@ def fit_model(config, params, file_mgr, model_name, y_codec):
         ):
             # Train with cross-validation.
             X_train, y_train, X_test, y_test = cv_split(X, y)
+            # Train and cross-validate using the split.
             model.train_on_batch(X_train, y_train)
             metrics = model.test_on_batch(X_test, y_test)
             # Extract metrics.
@@ -107,6 +107,10 @@ def fit_model(config, params, file_mgr, model_name, y_codec):
                 loss, acc = metrics
             else:
                 raise ValueError('Unrecognised metrics names: {}'.format(','.join(model.metrics_names)))
+            # Since we are only using 1% of the total training set, we don't want to "waste" any examples, so we train
+            # on the validation samples. This effectively doubles the training set without having to load twice as many
+            # examples.
+            model.train_on_batch(X_test, y_test)
             # Refresh the graph each ten batches to prevent TF slowdown.
             if batch_num % 10 == 0:
                 model = refresh_graph(model=model, build_fn=Disassembler, **params)

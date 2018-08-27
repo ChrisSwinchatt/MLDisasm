@@ -15,10 +15,10 @@ from mldisasm.util import log
 try:
     import psutil
     HAVE_PSUTIL = True
-except ImportError as e:
+except ImportError as __prof__top_level_exception__: # Give this a unique name so Pylint doesn't complain.
     HAVE_PSUTIL = False
     log.debug('Couldn\'t import psutil, memory profiling disabled')
-    log.debug('ImportError: {}'.format(str(e)))
+    log.debug('ImportError: {}'.format(str(__prof__top_level_exception__)))
 
 class GenericResourceProfiler:
     '''

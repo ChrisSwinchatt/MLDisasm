@@ -3,7 +3,6 @@
 '''Usage: {0} <model>
 '''
 
-import gc
 import os
 import sys
 import traceback as tb

@@ -53,12 +53,16 @@ for grid in ${grid_dir}/*; do
     # Select parameters from the grid.
     "${here}/tune" "${model_name}"
     # Copy the log file.
-    log_dest="${log_dir}/${grid%.json}.log"
+    log_name=$(basename "${grid%.json}")
+    log_dest="${log_dir}/${log_name}.log"
     cp "${log_path}" "${log_dest}"
 done
 
 # Stage 2: Training.
 "${here}/train" "${model_name}"
+log_name=$(basename "${grid%.json}")
+log_dest="${log_dir}/${log_name}.log"
+cp "${log_path}" "${log_dest}"
 
 # Stage 3: Validation.
 "${python}" "${here}/src/validator.py" "${model_name}"

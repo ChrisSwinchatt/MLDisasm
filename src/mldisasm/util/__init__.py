@@ -11,8 +11,8 @@ import tempfile
 import tensorflow.keras         as keras
 import tensorflow.keras.backend as K
 
-import mldisasm.util.log  as     log
-from   mldisasm.util.prof import *
+from .     import log
+from .prof import *
 
 def refresh_graph(*args, model=None, build_fn=None, **kwargs):
     '''
@@ -36,30 +36,35 @@ def refresh_graph(*args, model=None, build_fn=None, **kwargs):
             None if model    is None else type(model).__name__,
             None if build_fn is None else type(build_fn).__name__
         ))
-    if not isinstance(model, keras.Model):
+    if model is not None and not isinstance(model, keras.Model):
         raise TypeError('Expected instance of keras.Model for parameter \'model\', got {} instead'.format(
             type(model).__name__
         ))
-    if not hasattr(build_fn, '__call__'):
+    if build_fn is not None and not hasattr(build_fn, '__call__'):
         raise TypeError('Expected callable for parameter \'build_fn\', got {} instead'.format(
             type(build_fn).__name__
         ))
-    # Save the weights if model is given.
-    tmp_path = None
-    if model is not None:
-        with prof('Saved model'):
-            _, tmp_path = tempfile.mkstemp()
+    with prof('Refreshed graph'):
+        # Save the weights if model is given.
+        tmp_path = None
+        tmp_file = None
+        if model is not None:
+            tmp_file, tmp_path = tempfile.mkstemp()
             model.save_weights(tmp_path)
             del model
             model = None
-    # Clear the graph and collect freed memory.
-    with prof('Cleared graph'):
+            del tmp_file
+        # Clear the graph and collect freed memory.
         K.clear_session()
         gc.collect()
-    # Rebuild model and restore its weights.
-    if tmp_path is not None:
-        with prof('Reloaded model'):
+        # Rebuild model and restore its weights.
+        if tmp_path is not None:
             model = build_fn(*args, **kwargs)
             model.load_weights(tmp_path)
-            os.remove(tmp_path)
-    return model
+            try:
+                os.remove(tmp_path)
+            except PermissionError as e:
+                log.warning('Failed to delete temporary file because "{}"'.format(
+                    str(e)
+                ))
+        return model
