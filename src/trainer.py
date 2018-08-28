@@ -60,9 +60,9 @@ def train_epoch(file_mgr, config, codec, model, name, epoch):
         'Trained epoch {} with {}% accuracy, final loss={}', lambda: epoch, lambda: acc, lambda: loss,
         log_level='info'
     ):
-        max_batches = config['max_records']//config['batch_size']
+        max_batches = config['max_records']//config['model']['batch_size']
         batch_num   = 1
-        for X, y in file_mgr.yield_training(name, codec, config['batch_size']):
+        for X, y in file_mgr.yield_training(name, codec, config['model']['batch_size']):
             loss, acc = train_batch(model, X, y, epoch, num_epochs, batch_num, max_batches)
             batch_num += 1
             # Refresh the graph each ten batches to prevent TF slowdown.
