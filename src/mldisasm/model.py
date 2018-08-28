@@ -12,11 +12,12 @@ class Disassembler(keras.Sequential):
     '''
     Disassembler.
     '''
-    def __init__(self, hidden_size, output_size, **kwargs):
+    def __init__(self, hidden_size, output_size, gru_mode=False, **kwargs):
         '''
         Create a Disassembler model.
         :param hidden_size: How many hidden units to use in each LSTM layer.
         :param output_size: Dimensionality of the output.
+        :param gru_mode: Use GRU layers instead of LSTM layers.
         :note: The following parameters must be passed as keyword arguments.
         :param lstm_layers: How many LSTM layers to use. Default value is 1.
         :param lstm_activation: Name of the LSTM activation function. Default is 'tanh'.
@@ -63,15 +64,26 @@ class Disassembler(keras.Sequential):
             self.add(keras.layers.Masking(self.params['mask_value'], input_shape=input_shape))
         # Append LSTM layers.
         for _ in range(self.params['lstm_layers']):
-            self.add(keras.layers.LSTM(
-                units             = self.params['hidden_size'],
-                activation        = self.params['lstm_activation'],
-                dropout           = self.params['lstm_dropout'],
-                use_bias          = self.params['lstm_use_bias'],
-                unit_forget_bias  = self.params['lstm_forget_bias'],
-                recurrent_dropout = self.params['lstm_r_dropout'],
-                return_sequences  = True
-            ))
+            if gru_mode:
+                self.add(keras.layers.GRU(
+                    units             = self.params['hidden_size'],
+                    activation        = self.params['lstm_activation'],
+                    dropout           = self.params['lstm_dropout'],
+                    use_bias          = self.params['lstm_use_bias'],
+                    recurrent_dropout = self.params['lstm_r_dropout'],
+                    return_sequences  = True
+
+                ))
+            else:
+                self.add(keras.layers.LSTM(
+                    units             = self.params['hidden_size'],
+                    activation        = self.params['lstm_activation'],
+                    dropout           = self.params['lstm_dropout'],
+                    use_bias          = self.params['lstm_use_bias'],
+                    unit_forget_bias  = self.params['lstm_forget_bias'],
+                    recurrent_dropout = self.params['lstm_r_dropout'],
+                    return_sequences  = True
+                ))
         # Append dense layer.
         self.add(keras.layers.Dense(
             self.params['output_size'],
