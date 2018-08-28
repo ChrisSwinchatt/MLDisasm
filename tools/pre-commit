@@ -6,6 +6,8 @@ name=$(basename "$0")
 test_prefix="src/mldisasm/tests"
 test_pattern='test_*.py'
 
+mkdir -p "${test_prefix}"
+
 # Warn user if tests path doesn't exist but don't fail.
 if [[ ! -d "${test_prefix}" ]]; then
     echo "${name}: Warning: Not running tests because ${test_prefix} does not name a directory" >&2

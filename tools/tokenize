@@ -57,9 +57,9 @@ if __name__ == '__main__':
         if line_num % BATCH_SIZE == 0:
             print(
                 '{}: Processed {} records and found {} unique tokens'.format(
-                        sys.argv[0],
-                        line_num,
-                        len(tokens)
+                    sys.argv[0],
+                    line_num,
+                    len(tokens)
                 ),
                 file=sys.stderr
             )

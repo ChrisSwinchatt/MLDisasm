@@ -19,12 +19,12 @@ fi
 model_name="$1"
 data_dir="${here}/data"
 log_path="${data_dir}/mldisasm.log"
-config_path="${data_dir}/config.json"
-config_bak="${config_path}~"
 model_dir="${data_dir}/${model_name}"
 log_dir="${model_dir}/logs"
 
 python=$(which python3)
+
+mkdir -p "${log_dir}"
 
 [[ "x${MLD_PYTHON}" != "x" ]] && python="${MLD_PYTHON}"
 
@@ -34,35 +34,14 @@ if [[ ! -x $(which "${python}") ]]; then
 fi
 
 # Stage 1: Hyperparameter selection. grid_dir contains .json files which contain hyperparameters to tune.
-grid_dir="${data_dir}/grids"
-
-for grid in ${grid_dir}/*; do
-    if [[ ! -x "${grid}" ]]; then
-        echo "$0: Skipping non-executable file ${grid}" >&2
-        continue
-    fi
-    # Back up the previous config.
-    cp   "${config_path}" "${config_bak}"
-    # Append the grid to the config file.
-    tmp_path=$(mktemp)
-    cat  "${config_path}" | head -n -1 >"${tmp_path}"
-    mv   "${tmp_path}" "${config_path}"
-    echo -e ",\n\"grid\":" >>"${config_path}"
-    cat  "${grid}" >>"${config_path}"
-    echo "}" >>"${config_path}"
-    # Select parameters from the grid.
-    "${here}/tune" "${model_name}"
-    # Copy the log file.
-    log_name=$(basename "${grid%.json}")
-    log_dest="${log_dir}/${log_name}.log"
-    cp "${log_path}" "${log_dest}"
-done
+"${here}/autotune" "${model_name}"
 
 # Stage 2: Training.
 "${here}/train" "${model_name}"
-log_name=$(basename "${grid%.json}")
-log_dest="${log_dir}/${log_name}.log"
+log_dest="${log_dir}/training.log"
 cp "${log_path}" "${log_dest}"
 
 # Stage 3: Validation.
 "${python}" "${here}/src/validator.py" "${model_name}"
+log_dest="${log_dir}/validation.log"
+cp "${log_path}" "${log_dest}"

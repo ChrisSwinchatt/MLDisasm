@@ -1,0 +1,33 @@
+#!/bin/bash
+
+# Run hyperparameter selection.
+
+data_dir="${here}/data"
+grid_dir="${data_dir}/grids"
+log_path="${data_dir}/mldisasm.log"
+config_path="${data_dir}/config.json"
+config_bak="${config_path}~"
+
+mkdir -p "${grid_dir}"
+
+for grid in ${grid_dir}/*; do
+    if [[ ! -x "${grid}" ]]; then
+        echo "$0: Skipping non-executable file ${grid}" >&2
+        continue
+    fi
+    # Back up the previous config.
+    cp   "${config_path}" "${config_bak}"
+    # Append the grid to the config file.
+    tmp_path=$(mktemp)
+    cat  "${config_path}" | head -n -1 >"${tmp_path}"
+    mv   "${tmp_path}" "${config_path}"
+    echo -e ",\n\"grid\":" >>"${config_path}"
+    cat  "${grid}" >>"${config_path}"
+    echo "}" >>"${config_path}"
+    # Select parameters from the grid.
+    "${here}/tune" "${model_name}"
+    # Copy the log file.
+    log_name=$(basename "${grid%.json}")
+    log_dest="${log_dir}/${log_name}.log"
+    cp "${log_path}" "${log_dest}"
+done
