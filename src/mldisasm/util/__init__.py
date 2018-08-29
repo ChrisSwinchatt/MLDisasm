@@ -18,8 +18,8 @@ def refresh_graph(*args, model=None, build_fn=None, **kwargs):
     '''
     Refresh the TensorFlow graph. This is useful when fitting many successive models or training many epochs or batches.
     Each batch adds nodes to the graph, and TensorFlow evaluates all of these when executing the graph. This causes
-    training to take increasing amounts of time, at a rate of about 3.5% (compounding) per batch: if the first batch
-    takes 5 seconds, the 100th will take 150 seconds, and the 1,000th approximately 138 million years. To avoid this, we
+    training to take increasing amounts of time, at a rate of about 3.4% (compounding) per batch: if the first batch
+    takes 5 seconds, the 100th will take 140 seconds, and the 1,000th approximately 53 million years. To avoid this, we
     clear the graph at the end of each batch or epoch.
     :param model: None or a Keras model to save and reload. This is necessary when clearing the graph and continuing
     training, because the model's layers are stored within the graph and it isn't possible to delete nodes selectively.

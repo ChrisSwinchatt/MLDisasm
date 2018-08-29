@@ -68,7 +68,6 @@ def train_epoch(file_mgr, config, codec, model, name, epoch):
             # Refresh the graph each ten batches to prevent TF slowdown.
             if batch_num % 10 == 0:
                 model = refresh_graph(model=model, build_fn=Disassembler, **(config['model']))
-    print('Stopping')
     return loss
 
 def train_model(file_mgr, config, codec, name):
@@ -94,6 +93,7 @@ def train_model(file_mgr, config, codec, name):
                 )
             )
             break
+    print('Stopping')
     return model
 
 def read_command_line():

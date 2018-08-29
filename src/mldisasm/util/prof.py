@@ -294,5 +294,6 @@ def prof(end_msg, *args, start_msg=None, **kwargs):
         p = prof('Loaded file')
         with open(path, 'r') as file:
             return file.read()
+        return
     '''
     return Profiler(start_msg, end_msg, *args, **kwargs)

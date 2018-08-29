@@ -2,6 +2,9 @@
 
 # Run hyperparameter selection.
 
+here=$(dirname "$0")
+name=$(basename "$0")
+
 data_dir="${here}/data"
 grid_dir="${data_dir}/grids"
 log_path="${data_dir}/mldisasm.log"
