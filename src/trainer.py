@@ -37,15 +37,13 @@ def train_batch(model, X, y, epoch, num_epochs, batch_num, max_batches):
         lambda: loss,
         log_level='info'
     ):
-        history = model.fit(
-            X,
-            y,
-            steps_per_epoch = 1,
-            epochs          = 1,
-            verbose         = 0
-        )
-        loss = history.history['loss'][-1]
-        acc  = history.history['acc'][-1]*100
+        metrics = model.train_on_batch(X, y)
+        if model.metrics_names == ['acc','loss']:
+            acc, loss = metrics
+        elif model.metrics_names == ['loss','acc']:
+            loss, acc = metrics
+        else:
+            raise ValueError('Unrecognised metrics names: {}'.format(','.join(model.metrics_names)))
     # Exit the context before returning loss so prof can print the loss.
     return loss, acc
 
@@ -57,18 +55,20 @@ def train_epoch(file_mgr, config, codec, model, name, epoch):
     loss       = 0
     acc        = 0
     with prof(
-        'Trained epoch {} with {}% accuracy, final loss={}', lambda: epoch, lambda: acc, lambda: loss,
+        'Trained epoch {} with {}% accuracy, final loss={}', lambda: epoch, lambda: acc*100, lambda: loss,
         log_level='info'
     ):
         max_batches = config['max_records']//config['model']['batch_size']
         batch_num   = 1
         for X, y in file_mgr.yield_training(name, codec, config['model']['batch_size']):
             loss, acc = train_batch(model, X, y, epoch, num_epochs, batch_num, max_batches)
-            batch_num += 1
             # Refresh the graph each ten batches to prevent TF slowdown.
             if batch_num % 10 == 0:
-                model = refresh_graph(model=model, build_fn=Disassembler, **(config['model']))
-    return loss
+                model = refresh_graph(model=model, build_fn=Disassembler, **config['model'])
+            if batch_num >= max_batches:
+                break
+            batch_num += 1
+    return model, loss
 
 def train_model(file_mgr, config, codec, name):
     '''
@@ -82,7 +82,7 @@ def train_model(file_mgr, config, codec, name):
     for epoch in range(1, num_epochs + 1):
         # Allow user to stop training with ^C.
         try:
-            train_epoch(file_mgr, config, codec, model, name, epoch)
+            model, _ = train_epoch(file_mgr, config, codec, model, name, epoch)
         except KeyboardInterrupt:
             log.warning(
                 'Training interrupted at epoch {}/{}, remaining {} epochs will be skipped'\
@@ -94,6 +94,8 @@ def train_model(file_mgr, config, codec, name):
             )
             break
     print('Stopping')
+    # pylint: disable=protected-access
+    model.save_weights(file_mgr._qualify_model(model_name))
     return model
 
 def read_command_line():
@@ -121,7 +123,9 @@ if __name__ == '__main__':
         fix_output_size(config, tokens)
         # Train model on whole dataset.
         model = train_model(file_mgr, config, codec, model_name)
-        file_mgr.save_model(model, model_name)
+        # pylint: disable=protected-access
+        model.save_weights(file_mgr._qualify_model(model_name))
+        #file_mgr.save_model(model, model_name)
     except Exception as e:
         log.debug('====================[ UNCAUGHT EXCEPTION ]====================')
         log.error('Uncaught exception \'{}\': {}'.format(type(e).__name__, str(e).split('\n')[0]))

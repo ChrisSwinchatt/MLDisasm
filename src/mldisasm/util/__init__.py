@@ -14,7 +14,7 @@ import tensorflow.keras.backend as K
 from .     import log
 from .prof import *
 
-def refresh_graph(*args, model=None, build_fn=None, **kwargs):
+def refresh_graph(model=None, build_fn=None, args=None, **kwargs):
     '''
     Refresh the TensorFlow graph. This is useful when fitting many successive models or training many epochs or batches.
     Each batch adds nodes to the graph, and TensorFlow evaluates all of these when executing the graph. This causes
@@ -59,6 +59,8 @@ def refresh_graph(*args, model=None, build_fn=None, **kwargs):
         gc.collect()
         # Rebuild model and restore its weights.
         if tmp_path is not None:
+            if args is None:
+                args = tuple()
             model = build_fn(*args, **kwargs)
             model.load_weights(tmp_path)
             try:
