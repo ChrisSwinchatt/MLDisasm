@@ -42,7 +42,7 @@ if __name__ == '__main__':
     # pylint: disable=protected-access
     model.load_weights(file_mgr._qualify_model(model_name))
     # Perform validation line-by-line.
-    sample = 1
+    sample = 0
     losses = [None]*config['max_records']
     accs   = [None]*config['max_records']
     for X, y_true in file_mgr.yield_validation(model_name, y_codec):
@@ -57,21 +57,21 @@ if __name__ == '__main__':
             loss, acc = metrics
         else:
             raise ValueError('Unrecognised metrics names: {}'.format(','.join(model.metrics_names)))
-        accs.append(acc)
-        losses.append(loss)
+        accs[sample]   = acc
+        losses[sample] = loss
+        sample += 1
         # Decode and print results.
         y_true = ''.join(y_codec.decode(y_true)).rstrip()
         y_pred = ''.join(y_codec.decode(y_pred)).rstrip()
         print('Sample {}: loss={}, avg_loss={}, acc={}%, avg_acc={}%, y_pred="{}", y_true="{}"'.format(
             sample,
             loss,
-            np.mean(losses),
+            np.mean(losses[:sample]),
             acc,
-            np.mean(accs),
+            np.mean(accs[:sample]),
             y_pred,
             y_true
         ))
-        sample += 1
     print('Validated {} samples')
     print('          MIN\tMEAN\tMAX')
     print('Accuracy: {}%\t{}%\t{}%'.format(min(accs), np.mean(accs),   max(accs)))

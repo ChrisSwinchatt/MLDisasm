@@ -16,9 +16,8 @@ try:
 except ImportError:
     import json
 
-from mldisasm.util import prof
-import mldisasm.util.log               as     log
-from mldisasm.io.token_list        import TokenList
+from mldisasm.util          import prof, log
+from mldisasm.io.token_list import TokenList
 
 class FileManager:
     '''
@@ -331,7 +330,7 @@ class FileManager:
 
     _log_name          = 'mldisasm.log'     # Log filename.
     _config_name       = 'config.json'      # Config filename.
-    _model_name        = 'model.hdf5'       # Model filename.
+    _model_name        = 'model.h5'         # Model filename.
     _training_name     = 'training.json'    # Preprocessed training set filename.
     _training_raw_name = 'rawtraining.csv'  # Raw training set filename.
     _validation_name   = 'validation.json'  # Validation training set filename.
