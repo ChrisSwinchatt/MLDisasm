@@ -8,7 +8,7 @@ import numpy as np
 
 import tensorflow as tf
 
-from mldisasm.model import trainable_disassembler
+from mldisasm.model import Disassembler
 from mldisasm.util  import prof, refresh_graph
 
 def grids(params):
@@ -93,7 +93,7 @@ def train_batch(model, X, y, batch_num, params=None, refresh_step=50):
         metrics = model.train_on_batch([X, y], tf.manip.roll(y, 1, 1))
         acc, loss = _extract_metrics(model, metrics)
         if params is not None and batch_num >= refresh_step and batch_num%refresh_step == 0:
-            model = refresh_graph(model, build_fn=trainable_disassembler, **params)
+            model = refresh_graph(model, build_fn=Disassembler, **params)
     return acc, loss, model
 
 def test_batch(model, X, y):
@@ -150,7 +150,7 @@ def _train_fold(batches, params, train, test, fold_num, num_batches):
         # Clear the graph.
         refresh_graph()
         # Create and train a model over the full training set.
-        model     = trainable_disassembler(**params)
+        model     = Disassembler(**params)
         batch_num = 1
         for X, y in batches:
             # Train on the batch and extract metrics.

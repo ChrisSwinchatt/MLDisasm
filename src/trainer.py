@@ -18,7 +18,7 @@ import tensorflow.keras.backend as K
 
 from mldisasm.io.codec        import AsciiCodec, BytesCodec
 from mldisasm.io.file_manager import FileManager
-from mldisasm.model           import trainable_disassembler
+from mldisasm.model           import Disassembler
 from mldisasm.training        import train_epoch
 from mldisasm.util            import log
 
@@ -29,7 +29,7 @@ def train_model(file_mgr, config, codecs, name):
     params = config['model']
     log.info('Training model with parameters {}'.format(params))
     K.set_learning_phase(1)
-    model = trainable_disassembler(**params)
+    model = Disassembler(**params)
     num_epochs = params['epochs']
     for epoch in range(1, num_epochs + 1):
         _, _, model = train_epoch(

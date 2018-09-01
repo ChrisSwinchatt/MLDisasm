@@ -21,7 +21,7 @@ tf.logging.set_verbosity(tf.logging.INFO)
 
 from mldisasm.io.codec        import AsciiCodec, BytesCodec
 from mldisasm.io.file_manager import FileManager
-from mldisasm.model           import trainable_disassembler
+from mldisasm.model           import Disassembler
 
 if __name__ == '__main__':
     # Read the command line.
@@ -36,7 +36,7 @@ if __name__ == '__main__':
     y_codec = AsciiCodec(config['model']['x_seq_len'], config['model']['mask_value'])
     # NB: Creating a new model and loading the weights into it works around a bug in keras.models.load_model(). This
     # will fail if the model configuration (number of units or layers) changes between saving and loading the model.
-    model = trainable_disassembler(**config['model'])
+    model = Disassembler(**config['model'])
     model.load_weights(file_mgr.qualify_model(model_name))
     # Perform validation line-by-line.
     sample = 0

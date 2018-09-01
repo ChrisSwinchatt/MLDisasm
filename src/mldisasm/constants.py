@@ -12,3 +12,9 @@ BYTE_MAX  = 0xFF
 
 # Byteorder.
 BYTEORDER = 'little'
+
+# First token in a decoded sequence.
+START_TOKEN = '\t'
+
+# Last token in a decoded sequence.
+STOP_TOKEN = '\n'
