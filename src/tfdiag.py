@@ -5,7 +5,6 @@ MLDisasm TensorFlow diagnostics.
 '''
 
 import importlib
-import sys
 import os
 
 if __name__ == '__main__':

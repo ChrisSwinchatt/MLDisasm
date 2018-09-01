@@ -4,6 +4,9 @@
 MLDisasm constants.
 '''
 
+# Maximum value of an ASCII character.
+ASCII_MAX = 0x7F
+
 # Maximum value of a byte.
 BYTE_MAX  = 0xFF
 

@@ -7,6 +7,7 @@ import os
 import sys
 import traceback as tb
 
+
 if __name__ == '__main__':
     print('*** Starting up...')
     # Filter out debug messages from TF.
@@ -15,87 +16,30 @@ if __name__ == '__main__':
 import tensorflow               as tf
 import tensorflow.keras.backend as K
 
-from mldisasm.fixes           import fix_output_size
-from mldisasm.io.codec        import AsciiCodec
+from mldisasm.io.codec        import AsciiCodec, BytesCodec
 from mldisasm.io.file_manager import FileManager
-from mldisasm.model           import Disassembler
-from mldisasm.util            import log, prof, refresh_graph
+from mldisasm.model           import trainable_disassembler
+from mldisasm.training        import train_epoch
+from mldisasm.util            import log
 
-def train_batch(model, X, y, epoch, num_epochs, batch_num, max_batches):
-    '''
-    Train a single batch.
-    '''
-    loss = 0
-    acc  = 0
-    with prof(
-        'Epoch {}/{}: Trained batch {}/{} with {}% accuracy, loss={}',
-        epoch,
-        num_epochs,
-        batch_num,
-        max_batches,
-        lambda: acc,
-        lambda: loss,
-        log_level='info'
-    ):
-        metrics = model.train_on_batch(X, y)
-        if model.metrics_names == ['acc','loss']:
-            acc, loss = metrics
-        elif model.metrics_names == ['loss','acc']:
-            loss, acc = metrics
-        else:
-            raise ValueError('Unrecognised metrics names: {}'.format(','.join(model.metrics_names)))
-    # Exit the context before returning loss so prof can print the loss.
-    return loss, acc
-
-def train_epoch(file_mgr, config, codec, model, name, epoch):
-    '''
-    Train a single epoch.
-    '''
-    num_epochs = config['model']['epochs']
-    loss       = 0
-    acc        = 0
-    with prof(
-        'Trained epoch {} with {}% accuracy, final loss={}', lambda: epoch, lambda: acc*100, lambda: loss,
-        log_level='info'
-    ):
-        max_batches = config['max_records']//config['model']['batch_size']
-        batch_num   = 1
-        for X, y in file_mgr.yield_training(name, codec, config['model']['batch_size']):
-            loss, acc = train_batch(model, X, y, epoch, num_epochs, batch_num, max_batches)
-            # Refresh the graph each ten batches to prevent TF slowdown.
-            if batch_num % 10 == 0:
-                model = refresh_graph(model=model, build_fn=Disassembler, **config['model'])
-            if batch_num >= max_batches:
-                break
-            batch_num += 1
-    return model, loss
-
-def train_model(file_mgr, config, codec, name):
+def train_model(file_mgr, config, codecs, name):
     '''
     Train a model.
     '''
     params = config['model']
     log.info('Training model with parameters {}'.format(params))
     K.set_learning_phase(1)
-    model      = Disassembler(**params)
+    model = trainable_disassembler(**params)
     num_epochs = params['epochs']
     for epoch in range(1, num_epochs + 1):
-        # Allow user to stop training with ^C.
-        try:
-            model, _ = train_epoch(file_mgr, config, codec, model, name, epoch)
-        except KeyboardInterrupt:
-            log.warning(
-                'Training interrupted at epoch {}/{}, remaining {} epochs will be skipped'\
-                '(press ^C again to quit)'.format(
-                    epoch,
-                    num_epochs,
-                    num_epochs - epoch
-                )
-            )
-            break
-    print('Stopping')
-    # pylint: disable=protected-access
-    model.save_weights(file_mgr._qualify_model(model_name))
+        _, _, model = train_epoch(
+            model,
+            file_mgr.yield_training(name, codecs, config['batch_size'], max_records=config['max_records']),
+            epoch,
+            num_epochs,
+            params,
+            config['max_records']//config['batch_size']
+        )
     return model
 
 def read_command_line():
@@ -116,16 +60,12 @@ if __name__ == '__main__':
     log.init(file_mgr.open_log())
     try:
         # Load configuration,
-        config = file_mgr.load_config()
-        tokens = file_mgr.load_tokens()
-        codec  = AsciiCodec(config['seq_len'], config['mask_value'], tokens)
-        # Apply output_size workaround.
-        fix_output_size(config, tokens)
+        config  = file_mgr.load_config(model_name)
+        x_codec = BytesCodec(config['model']['x_seq_len'], config['model']['mask_value'])
+        y_codec = AsciiCodec(config['model']['y_seq_len'], config['model']['mask_value'])
         # Train model on whole dataset.
-        model = train_model(file_mgr, config, codec, model_name)
-        # pylint: disable=protected-access
-        model.save_weights(file_mgr._qualify_model(model_name))
-        #file_mgr.save_model(model, model_name)
+        model = train_model(file_mgr, config, (x_codec,y_codec), model_name)
+        model.save_weights(file_mgr.qualify_model(model_name))
     except Exception as e:
         log.debug('====================[ UNCAUGHT EXCEPTION ]====================')
         log.error('Uncaught exception \'{}\': {}'.format(type(e).__name__, str(e).split('\n')[0]))

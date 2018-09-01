@@ -2,13 +2,18 @@
 
 # Run hyperparameter selection.
 
+set -e
+
 here=$(dirname "$0")
 name=$(basename "$0")
+model_name="$1"
 
 data_dir="${here}/data"
-grid_dir="${data_dir}/grids"
+model_dir="${data_dir}/${model_name}"
+log_dir="${model_dir}/logs"
 log_path="${data_dir}/mldisasm.log"
-config_path="${data_dir}/config.json"
+grid_dir="${model_dir}/grids"
+config_path="${model_dir}/config.json"
 config_bak="${config_path}~"
 
 mkdir -p "${grid_dir}"
@@ -33,4 +38,6 @@ for grid in ${grid_dir}/*; do
     log_name=$(basename "${grid%.json}")
     log_dest="${log_dir}/${log_name}.log"
     cp "${log_path}" "${log_dest}"
+    # If everything succeeded, remove the executable flag from the grid so we skip it next time.
+    chmod -x "${grid}"
 done

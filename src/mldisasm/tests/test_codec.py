@@ -28,26 +28,34 @@ TOKENS = None
 CONFIG = None
 
 def setup_module():
-    '''Setup.'''
+    '''
+    Setup.
+    '''
     global TF_DEVICE, TF_SESSION, FILE_MGR, TOKENS, CONFIG
     # Set device and session.
     TF_DEVICE  = tf.device(TF_DEVICE).__enter__()
     TF_SESSION = tf.Session().__enter__()
     FILE_MGR   = FileManager()
-    TOKENS     = FILE_MGR.load_tokens(MODEL_NAME)
+    TOKENS     = FILE_MGR.load_tokens()
     CONFIG     = FILE_MGR.load_config()
 
 def teardown_module():
-    '''Teardown.'''
+    '''
+    Teardown.
+    '''
     TF_SESSION.close()
 
 def random_tokens():
-    '''Generate random tokens'''
+    '''
+    Generate random tokens.
+    '''
     count = np.random.randint(1, SEQ_LEN)
     return ' '.join(np.random.choice(TOKENS, count)).replace('  ', ' ').rstrip()
 
 def test_ascii_codec():
-    ''' Test AsciiCodec. '''
+    '''
+    Test AsciiCodec.
+    '''
     enter_test(test_ascii_codec)
     codec = AsciiCodec(SEQ_LEN, CONFIG['mask_value'], TOKENS)
     for _ in range(TEST_ITERATIONS):
@@ -60,7 +68,9 @@ def test_ascii_codec():
     leave_test()
 
 def test_bytes_codec():
-    '''Test BytesCodec'''
+    '''
+    Test BytesCodec
+    '''
     enter_test(test_bytes_codec)
     codec = BytesCodec(SEQ_LEN, CONFIG['mask_value'])
     for _ in range(TEST_ITERATIONS):

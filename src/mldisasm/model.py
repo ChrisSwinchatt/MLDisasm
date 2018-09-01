@@ -2,112 +2,150 @@
 
 '''
 MLDisasm disassembler model.
+
+See: https://blog.keras.io/a-ten-minute-introduction-to-sequence-to-sequence-learning-in-keras.html
 '''
 
 import inspect
 
 import tensorflow.keras as keras
 
-class Disassembler(keras.Sequential):
-    '''
-    Disassembler.
-    '''
-    def __init__(self, hidden_size, output_size, gru_mode=False, **kwargs):
-        '''
-        Create a Disassembler model.
-        :param hidden_size: How many hidden units to use in each LSTM layer.
-        :param output_size: Dimensionality of the output.
-        :param gru_mode: Use GRU layers instead of LSTM layers.
-        :note: The following parameters must be passed as keyword arguments.
-        :param lstm_layers: How many LSTM layers to use. Default value is 1.
-        :param lstm_activation: Name of the LSTM activation function. Default is 'tanh'.
-        :param lstm_dropout: Dropout rate between LSTM sequences. Default is 0.
-        :param lstm_r_dropout: Dropout rate between steps within each sequence. Default is 0.
-        :param lstm_use_bias: Whether to use bias vectors in LSTM layers. Default is true.
-        :param lstm_forget_bias: Whether to apply unit forget bias. Default is True.
-        :param dense_units: Number of units in the dense layer. Default is 1.
-        :param dense_activation: Name of the dense layer activation function. Default is 'sigmoid'.
-        :param loss: Name of the loss function to minimise during training. Default is 'mean_squared_error'.
-        :param optimizer: Name of the optimiser. Default is 'SGD' (stochastic gradient descent).
-        :param opt_params: Dictionary of optimiser parameters. Default is empty dict. Values are optimizer dependent, but a
-        common one is 'lr' (learning rate).
-        :param batch_size: Batch size. Default is None (variable size).
-        :param seq_len: Sequence length. Default is None (variable length).
-        :param mask_value: Mask value. Default is None (no masking).
-        '''
-        super().__init__()
-        # Save parameters.
-        self.params = {
-            'hidden_size':      hidden_size,
-            'output_size':      output_size,
-            'seq_len':          kwargs.get('seq_len',          None),
-            'use_masking':      kwargs.get('use_masking',      False),
-            'mask_value':       kwargs.get('mask_value',       None),
-            'lstm_layers':      kwargs.get('lstm_layers',      1),
-            'lstm_activation':  kwargs.get('lstm_activation',  'tanh'),
-            'lstm_dropout':     kwargs.get('lstm_dropout',     0.0),
-            'lstm_use_bias':    kwargs.get('lstm_use_bias',    True),
-            'lstm_forget_bias': kwargs.get('lstm_forget_bias', True),
-            'lstm_r_dropout':   kwargs.get('lstm_r_dropout',   0.0),
-            'dense_activation': kwargs.get('dense_activation', 'sigmoid'),
-            'use_softmax':      kwargs.get('use_softmax',      False),
-            'optimizer':        kwargs.get('optimizer',        'SGD'),
-            'opt_params':       kwargs.get('opt_params',       dict()),
-            'loss':             kwargs.get('loss',             'categorical_crossentropy'),
-            'metrics':          kwargs.get('metrics',          ['acc'])
-        }
-        # Add input layer.
-        input_shape = (self.params['seq_len'], 1)
-        self.add(keras.layers.InputLayer(input_shape))
-        # Add masking layer.
-        if self.params['use_masking'] and self.params['mask_value'] is not None:
-            self.add(keras.layers.Masking(self.params['mask_value'], input_shape=input_shape))
-        # Append LSTM layers.
-        for _ in range(self.params['lstm_layers']):
-            if gru_mode:
-                self.add(keras.layers.GRU(
-                    units             = self.params['hidden_size'],
-                    activation        = self.params['lstm_activation'],
-                    dropout           = self.params['lstm_dropout'],
-                    use_bias          = self.params['lstm_use_bias'],
-                    recurrent_dropout = self.params['lstm_r_dropout'],
-                    return_sequences  = True
+DEFAULT_PARAMS = {
+    'x_seq_len':             None,
+    'y_seq_len':             None,
+    'mask_value':            None,
+    'recurrent_unit':        'lstm',
+    'recurrent_layers':      1,
+    'recurrent_activation':  'tanh',
+    'recurrent_use_bias':    True,
+    'recurrent_forget_bias': True,
+    'dropout':               0.0,
+    'recurrent_dropout':     0.0,
+    'dense_activation':      'sigmoid',
+    'use_softmax':           True,
+    'optimizer':             'SGD',
+    'opt_params':            dict(),
+    'loss':                  'categorical_crossentropy',
+    'metrics':               'acc'
+}
 
-                ))
-            else:
-                self.add(keras.layers.LSTM(
-                    units             = self.params['hidden_size'],
-                    activation        = self.params['lstm_activation'],
-                    dropout           = self.params['lstm_dropout'],
-                    use_bias          = self.params['lstm_use_bias'],
-                    unit_forget_bias  = self.params['lstm_forget_bias'],
-                    recurrent_dropout = self.params['lstm_r_dropout'],
-                    return_sequences  = True
-                ))
-        # Append dense layer.
-        self.add(keras.layers.Dense(
-            self.params['output_size'],
-            self.params['dense_activation']
+def _make_params(**kwargs):
+    params = dict(DEFAULT_PARAMS)
+    params.update(kwargs)
+    return params
+
+def _make_recurrent_layer(params, **kwargs):
+    layer_params = {
+        'units':             params['hidden_size'],
+        'activation':        params['recurrent_activation'],
+        'dropout':           params['dropout'],
+        'use_bias':          params['recurrent_use_bias'],
+        'recurrent_dropout': params['recurrent_dropout'],
+        'return_sequences':  True,
+        'return_state':      True
+    }
+    layer_params.update(kwargs)
+    if params['recurrent_unit'] == 'rnn':
+        return keras.layers.SimpleRNN(**layer_params)
+    elif params['recurrent_unit'] == 'gru':
+        return keras.layers.GRU(**layer_params)
+    elif params['recurrent_unit'] == 'lstm':
+        layer_params['unit_forget_bias'] = params['recurrent_forget_bias']
+        return keras.layers.LSTM(**layer_params)
+    else:
+        raise ValueError('Invalid value for recurrent_unit: {}'.format(params['recurrent_unit']))
+
+def _make_encoder(params):
+    input_shape = (params['x_seq_len'], params['input_size'])
+    inputs      = keras.layers.Input(shape=input_shape)
+    encoder     = _make_recurrent_layer(params, return_sequences=False)
+    outputs     = encoder(inputs)
+    # The output of encoder is the predictions and either one (RNN, GRU) or two (LSTM) internal states.
+    state = None
+    if len(outputs) == 2:
+        state = outputs[1]
+    elif len(outputs) == 3:
+        state = [outputs[1], outputs[2]]
+    else:
+        raise TypeError('Expected tuple with length of either two or three, got {} of length {}'.format(
+            type(outputs).__name__,
+            len(outputs)
         ))
-        # Append softmax layer.
-        if self.params['use_softmax']:
-            self.add(keras.layers.Softmax(input_shape=self.input_shape))
-        # Compile the model with optimiser and loss function.
-        optimizer = self.params['optimizer']
-        if isinstance(optimizer, str):
-            # If optimizer is str, interpret it as the name of a Keras optimizer.
-            optimizer = getattr(keras.optimizers, optimizer)
-            # Filter out parameters which aren't found in the optimizer's signature. This is needed for gridsearch
-            # because the opt_params grid contains parameter values for all optimizers being searched.
-            signature  = inspect.signature(optimizer)
-            opt_params = dict(filter(
-                lambda kv: kv[0] in signature.parameters,
-                self.params['opt_params']
-            ))
-            # Instantiate the optimizer with the chosen parameters.
-            optimizer = optimizer(**opt_params)
-        self.compile(
-            optimizer,
-            self.params['loss'],
-            metrics=self.params['metrics']
-        )
+    assert state is not None
+    return inputs, state
+
+def _make_decoder(params, state):
+    input_shape   = (params['y_seq_len'], params['output_size'])
+    inputs        = keras.layers.Input(shape=input_shape)
+    decoder       = _make_recurrent_layer(params)
+    outputs, _, _ = decoder(inputs, initial_state=state)
+    dense         = keras.layers.Dense(params['output_size'], params['dense_activation'])
+    outputs       = dense(outputs)
+    return inputs, outputs
+
+def _compile(model, params):
+    optimizer = params['optimizer']
+    if isinstance(optimizer, str):
+        # If optimizer is str, interpret it as the name of a Keras optimizer.
+        optimizer = getattr(keras.optimizers, optimizer)
+        # Filter out parameters which aren't found in the optimizer's signature. This is needed for gridsearch
+        # because the opt_params grid contains parameter values for all optimizers being searched.
+        signature  = inspect.signature(optimizer)
+        opt_params = dict(filter(
+            lambda kv: kv[0] in signature.parameters,
+            params['opt_params']
+        ))
+        # Instantiate the optimizer with the chosen parameters.
+        optimizer = optimizer(**opt_params)
+    model.compile(
+        optimizer,
+        params['loss'],
+        metrics=params['metrics']
+    )
+    return model
+
+def trainable_disassembler(input_size, hidden_size, output_size, **kwargs):
+    '''
+    Create a disassembler model for training. After creating the disassembler, you can train it with any of the methods
+    of keras.Model, such as fit(). The inputs to the model (X) is a tuple of the training inputs and targets; the
+    targets of the model (y) are the same as the second input but shifted one timestep along:
+
+    :example:
+        model = trainable_disassembler(...)
+        model.fit([X, y], tf.manip.roll(y, 1, 1), ...)
+
+    :param input_size: Dimensionality of the input space.
+    :param hidden_size: Number of units per recurrent layer.
+    :param output_size: Dimensionality of the output space.
+
+    :note: The following must be passed as keyword arguments if given.
+
+    :param x_seq_len: Length of the input sequence. Default: None (variable).
+    :param y_seq_len: Length of the output sequence. Default: None (variable).
+    :param mask_value: Mask value. Timesteps with the mask value are skipped. Default: None (no masking).
+    :param recurrent_unit: Type of recurrent unit. Possible values are: 'gru', 'rnn', 'lstm'. Default: lstm.
+    :param recurrent_layers: Number of recurrent layers. Default: 1.
+    :param recurrent_activation: Recurrent activation function. Default: tanh.
+    :param recurrent_use_bias: Whether to use bias in the recurrent layers. Default: True
+    :param recurrent_forget_bias: Whether to use forget bias in LSTM layers. Default: True.
+    :param dropout: Dropout rate between sequences. Default: 0.
+    :param recurrent_dropout: Dropout rate within sequences. Default: 0.
+    :param dense_activation: Activation function for dense layer. Default: sigmoid.
+    :param use_softmax: Whether to use a softmax layer. Default: True.
+    :param optimizer: Which optimizer to use. Default: SGD.
+    :param opt_params: Parameters to the optimizer. A common one is 'lr' for learning rate. Default: {}.
+    :param loss: Loss function. Default: categorical_crossentropy.
+    :param metrics: Metrics. Default: accuracy.
+
+    :returns: A trainable disassembler model.
+    '''
+    params = _make_params(
+        input_size=input_size,
+        hidden_size=hidden_size,
+        output_size=output_size,
+        **kwargs
+    )
+    encoder_inputs, encoder_state   = _make_encoder(params)
+    decoder_inputs, decoder_outputs = _make_decoder(params, encoder_state)
+    model = keras.Model([encoder_inputs, decoder_inputs], decoder_outputs)
+    return _compile(model, params)

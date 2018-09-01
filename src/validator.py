@@ -19,9 +19,9 @@ import tensorflow as tf
 
 tf.logging.set_verbosity(tf.logging.INFO)
 
-from mldisasm.io.codec        import AsciiCodec
+from mldisasm.io.codec        import AsciiCodec, BytesCodec
 from mldisasm.io.file_manager import FileManager
-from mldisasm.model           import Disassembler
+from mldisasm.model           import trainable_disassembler
 
 if __name__ == '__main__':
     # Read the command line.
@@ -31,16 +31,13 @@ if __name__ == '__main__':
     model_name = sys.argv[1]
     # Load files and create codecs.
     file_mgr   = FileManager()
-    config     = file_mgr.load_config()
-    tokens     = file_mgr.load_tokens()
-    seq_len    = config['seq_len']
-    mask_value = config['mask_value']
-    y_codec    = AsciiCodec(seq_len, mask_value, tokens)
+    config     = file_mgr.load_config(model_name)
+    x_codec = BytesCodec(config['model']['x_seq_len'], config['model']['mask_value'])
+    y_codec = AsciiCodec(config['model']['x_seq_len'], config['model']['mask_value'])
     # NB: Creating a new model and loading the weights into it works around a bug in keras.models.load_model(). This
     # will fail if the model configuration (number of units or layers) changes between saving and loading the model.
-    model = Disassembler(**config['model'])
-    # pylint: disable=protected-access
-    model.load_weights(file_mgr._qualify_model(model_name))
+    model = trainable_disassembler(**config['model'])
+    model.load_weights(file_mgr.qualify_model(model_name))
     # Perform validation line-by-line.
     sample = 0
     losses = [None]*config['max_records']
@@ -61,8 +58,9 @@ if __name__ == '__main__':
         losses[sample] = loss
         sample += 1
         # Decode and print results.
-        y_true = ''.join(y_codec.decode(y_true)).rstrip()
-        y_pred = ''.join(y_codec.decode(y_pred)).rstrip()
+        #print('y_true =', y_true, '; y_pred =', y_pred)
+        y_true = y_codec.decode(y_true)[0]
+        y_pred = y_codec.decode(y_pred)[0]
         print('Sample {}: loss={}, avg_loss={}, acc={}%, avg_acc={}%, y_pred="{}", y_true="{}"'.format(
             sample,
             loss,
@@ -72,6 +70,8 @@ if __name__ == '__main__':
             y_pred,
             y_true
         ))
+        if sample >= config['max_records']:
+            break
     print('Validated {} samples')
     print('          MIN\tMEAN\tMAX')
     print('Accuracy: {}%\t{}%\t{}%'.format(min(accs), np.mean(accs),   max(accs)))
