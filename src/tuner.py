@@ -31,7 +31,7 @@ from mldisasm.training        import parameter_grid, kfolds_train
 
 RANDOM_SEED = 1
 
-def train_model(config, params, file_mgr, model_name, codecs):
+def tune_model(config, params, file_mgr, model_name, codecs):
     '''
     Train a model with a set of parameters and return the average accuracy and loss during cross-validation.
     '''
@@ -65,8 +65,8 @@ def select_params(config, file_mgr, model_name, codecs):
     num_fits    = len(grid)
     best_params = None
     best_acc    = -np.inf
-    loss        = 0
     acc         = 0
+    loss        = 0
     for grid_params in grid:
         with prof(
             'Grid {}/{}: acc={}%, loss={}', fit_num, num_fits, lambda: 100*acc, lambda: round(loss, 4),
@@ -75,7 +75,7 @@ def select_params(config, file_mgr, model_name, codecs):
         ):
             params = dict(config['model'])
             params.update(grid_params)
-            loss, acc = train_model(config, params, file_mgr, model_name, codecs)
+            acc, loss = tune_model(config, params, file_mgr, model_name, codecs)
             # Select model by accuracy.
             if acc > best_acc:
                 best_acc = acc
@@ -95,6 +95,7 @@ def read_command_line():
     return sys.argv[1]
 
 if __name__ == '__main__':
+    K.set_learning_phase(1)
     # Read command-line args.
     model_name = read_command_line()
     # Start file manager & logging.

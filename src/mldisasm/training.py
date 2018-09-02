@@ -49,8 +49,8 @@ def kfolds(n, k=3, shuffle=True):
     for i in range(k):
         # Generate the indices for the fold. The test fold is everything from [i*m, (i + 1)*m); the training fold is
         # everything else.
-        train = list(range(i*m)) + list(range((i + 1)*m, k*m))
-        test  = list(range(i*m, (i + 1)*m))
+        train = np.asarray(list(range(i*m)) + list(range((i + 1)*m, k*m)), dtype=np.int32)
+        test  = np.asarray(list(range(i*m, (i + 1)*m)), dtype=np.int32)
         if shuffle:
             np.random.shuffle(train)
             np.random.shuffle(test)
@@ -76,7 +76,7 @@ def _extract_metrics(model, metrics):
         raise ValueError('Unrecognised metrics names: {}'.format(','.join(model.metrics_names)))
     return acc, loss
 
-def train_batch(model, X, y, batch_num, params=None, refresh_step=50):
+def train_batch(model, X, y, batch_num, params=None, refresh_step=10, num_batches=-1):
     '''
     Train a model on one batch of samples.
     :param model: The model.
@@ -85,14 +85,26 @@ def train_batch(model, X, y, batch_num, params=None, refresh_step=50):
     :param batch_num: The one-based batch number.
     :param params: Parameters to rebuild model when refreshing the graph, or None to disable graph refreshing and
     rebuilding model.
-    :param refresh_step: How many batches to wait before refreshing the graph. Ignored if params is None.
+    :param refresh_step: How many batches to wait before refreshing the graph. Ignored if params is None. If set to -1
+    while num_batches is positive, refresh_step will be set to num_batches//10.
+    :param num_batches: How many batches there are in total.
     :returns: A tuple of the accuracy, loss and model (always returned but only useful if the graph was refreshed).
     '''
     acc, loss = -np.inf, np.inf
-    with prof('Batch {}: acc={}%, loss={}', batch_num, lambda: acc*100, lambda: loss, log_level='info'):
-        metrics = model.train_on_batch([X, y], tf.manip.roll(y, 1, 1))
+    if params is not None and refresh_step < 0 and num_batches > 0:
+        refresh_step = num_batches//10
+    with prof(
+        'Batch {}{}{}: acc={}%, loss={}',
+        batch_num,
+        '/' if num_batches > 0 else '',
+        num_batches if num_batches > 0 else '',
+        lambda: acc*100,
+        lambda: loss,
+        log_level='info'
+    ):
+        metrics   = model.train_on_batch([X, y], tf.manip.roll(y, 1, 1))
         acc, loss = _extract_metrics(model, metrics)
-        if params is not None and batch_num >= refresh_step and batch_num%refresh_step == 0:
+        if params is not None and batch_num > 0 and batch_num % refresh_step == 0:
             model = refresh_graph(model, build_fn=Disassembler, **params)
     return acc, loss, model
 
@@ -130,7 +142,7 @@ def train_epoch(model, batches, epoch, num_epochs, params=None, num_batches=0):
     ):
         batch_num = 1
         for X, y in batches:
-            acc, loss, model = train_batch(model, X, y, batch_num, params)
+            acc, loss, model = train_batch(model, X, y, batch_num, params, num_batches=num_batches)
             avg_acc  = _running_average(avg_acc,  acc,  batch_num)
             avg_loss = _running_average(avg_loss, loss, batch_num)
             del X, y
@@ -153,16 +165,18 @@ def _train_fold(batches, params, train, test, fold_num, num_batches):
         model     = Disassembler(**params)
         batch_num = 1
         for X, y in batches:
-            # Train on the batch and extract metrics.
+            model = Disassembler(**params)
+            # Train and cross-validate.
             X_train, y_train, X_test, y_test = cv_split(X, y, train, test)
             _, _, model = train_batch(model, X_train, y_train, batch_num)
             acc, loss   = test_batch(model,  X_test,  y_test)
             # Recompute averages.
-            avg_acc     = _running_average(avg_acc,  acc,  batch_num)
-            avg_loss    = _running_average(avg_loss, loss, batch_num)
+            avg_acc  = _running_average(avg_acc,  acc,  batch_num)
+            avg_loss = _running_average(avg_loss, loss, batch_num)
             if num_batches > 0 and batch_num >= num_batches:
                 break
             batch_num += 1
+        del model
         return avg_acc, avg_loss
 
 def kfolds_train(batches, params, num_batches=-1):

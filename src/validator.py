@@ -15,7 +15,8 @@ if __name__ == '__main__':
     # Filter out debug messages from TF.
     os.environ['TF_CPP_MIN_LOG_LEVEL'] = '1'
 
-import tensorflow as tf
+import tensorflow               as tf
+import tensorflow.keras.backend as K
 
 tf.logging.set_verbosity(tf.logging.INFO)
 
@@ -24,6 +25,7 @@ from mldisasm.io.file_manager import FileManager
 from mldisasm.model           import Disassembler
 
 if __name__ == '__main__':
+    K.set_learning_phase(0)
     # Read the command line.
     if len(sys.argv) != 2:
         print(__doc__.format(sys.argv[0]), file=sys.stderr)
@@ -70,11 +72,8 @@ if __name__ == '__main__':
             y_pred,
             y_true
         ))
-<<<<<<< HEAD
-=======
         if sample >= config['max_records']:
             break
->>>>>>> encdec
     print('Validated {} samples')
     print('          MIN\tMEAN\tMAX')
     print('Accuracy: {}%\t{}%\t{}%'.format(min(accs), np.mean(accs),   max(accs)))

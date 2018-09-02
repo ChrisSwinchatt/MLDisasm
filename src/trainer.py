@@ -7,6 +7,7 @@ import os
 import sys
 import traceback as tb
 
+import numpy as np
 
 if __name__ == '__main__':
     print('*** Starting up...')
@@ -20,7 +21,7 @@ from mldisasm.io.codec        import AsciiCodec, BytesCodec
 from mldisasm.io.file_manager import FileManager
 from mldisasm.model           import Disassembler
 from mldisasm.training        import train_epoch
-from mldisasm.util            import log
+from mldisasm.util            import log, prof
 
 def train_model(file_mgr, config, codecs, name):
     '''
@@ -29,17 +30,20 @@ def train_model(file_mgr, config, codecs, name):
     params = config['model']
     log.info('Training model with parameters {}'.format(params))
     K.set_learning_phase(1)
-    model = Disassembler(**params)
+    model      = Disassembler(**params)
     num_epochs = params['epochs']
+    acc        = -np.inf
+    loss       = np.inf
     for epoch in range(1, num_epochs + 1):
-        _, _, model = train_epoch(
-            model,
-            file_mgr.yield_training(name, codecs, params['batch_size'], max_records=config['max_records']),
-            epoch,
-            num_epochs,
-            params,
-            config['max_records']//params['batch_size']
-        )
+        with prof('Epoch {}/{}: acc={}%, loss={}', epoch, num_epochs + 1, lambda: acc, lambda: loss):
+            acc, loss, model = train_epoch(
+                model,
+                file_mgr.yield_training(name, codecs, params['batch_size'], max_records=config['max_records']),
+                epoch,
+                num_epochs,
+                params,
+                config['max_records']//params['batch_size']
+            )
     return model
 
 def read_command_line():
@@ -52,6 +56,7 @@ def read_command_line():
     return sys.argv[1]
 
 if __name__ == '__main__':
+    K.set_learning_phase(1)
     # Read command-line args.
     model_name = read_command_line()
     # Start file manager & logging.

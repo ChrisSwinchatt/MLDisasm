@@ -42,18 +42,30 @@ def _make_params(**kwargs):
     params.update(kwargs)
     return params
 
+def _split_recurrent_states(outputs):
+    '''
+    Split the output of a recurrent unit with return_state enabled into output and state tensors. This is needed
+    because the LSTM returns two hidden states, the GRU and RNN return one hidden state, and a unit with return_state
+    disabled returns only the output tensor.
+    '''
+    n = len(outputs)
+    if n == 1:
+        return outputs, None
+    elif n == 2:
+        return outputs[0], outputs[1]
+    elif n == 3:
+        return outputs[0], [outputs[1],outputs[2]]
+    raise TypeError('Expected tuple with 1 output and either 1 or 2 states, got {} of length {} instead'.format(
+        type(outputs).__name__,
+        n
+    ))
+
 def _make_recurrent_layer(params, **kwargs):
     '''
-    Make one or more recurrent layers depending on `params` and `kwargs`.
+    Make a recurrent layer depending on `params` and `kwargs`.
     '''
-    if params['recurrent_layers'] > 1:
-        num_layers = params['recurrent_layers']
-        params     = dict(params)
-        del params['recurrent_layers']
-        model = keras.Sequential()
-        for _ in range(num_layers):
-            model.add(_make_recurrent_layer(params))
-        return model
+    # Select only those parameters which are valid for the recurrent unit we're going to use. Fortunately SimpleRNN, GRU
+    # and LSTM take mostly the same parameters, with the exception that only LSTM takes the unit_forget_bias parameter.
     layer_params = {
         'units':             params['hidden_size'],
         'activation':        params['recurrent_activation'],
@@ -67,23 +79,49 @@ def _make_recurrent_layer(params, **kwargs):
     elif params['recurrent_unit'] == 'gru':
         return keras.layers.GRU(**layer_params)
     elif params['recurrent_unit'] == 'lstm':
-        layer_params['unit_forget_bias'] = params['recurrent_forget_bias'] # Only LSTM takes unit_forget_bias param.
+        layer_params['unit_forget_bias'] = params['recurrent_forget_bias']
         return keras.layers.LSTM(**layer_params)
     else:
         raise ValueError('Invalid value for recurrent_unit: {}'.format(params['recurrent_unit']))
 
-def _split_recurrent_states(outputs):
-    n = len(outputs)
-    if n == 2:
-        return outputs[0], outputs[1]
-    elif n == 3:
-        return outputs[0], [outputs[1],outputs[2]]
-    raise TypeError('Expected tuple with 1 output and either 1 or 2 states, got {} of length {} instead'.format(
-        type(outputs).__name__,
-        n
-    ))
+class RecurrentStack(keras.layers.Layer):
+    '''
+    A stack of recurrent layers.
+    '''
+    def __init__(self, params=None, **kwargs):
+        super().__init__()
+        # Create a copy of params so we can modify it.
+        self.params = params
+        # Create layer(s).
+        self.layers = []
+        if self.params['recurrent_layers'] > 1:
+            # Add first recurrent layer(s), which have return_sequences=True and return_state=False.
+            return_sequences           = kwargs['return_sequences']
+            return_state               = kwargs['return_state']
+            kwargs['return_sequences'] = True
+            kwargs['return_state']     = False
+            for _ in range(self.params['recurrent_layers'] - 1):
+                self.layers.append(_make_recurrent_layer(self.params, **kwargs))
+            # Restore original values.
+            kwargs['return_sequences'] = return_sequences
+            kwargs['return_state']     = return_state
+        # Add the last layer, which gets the original values of return_sequences and return_state.
+        self.layers.append(_make_recurrent_layer(self.params, **kwargs))
 
-class _DisassemblyEncoder:
+    def compute_output_shape(self, input_shape):
+        return self.layers[-1].compute_output_shape(input_shape)
+
+    def call(self, X, *args, initial_state=None, **kwargs):
+        '''
+        Compute the forwards pass.
+        '''
+        # Pass initial_state only to the first layer.
+        X = self.layers[0](X, *args, initial_state=initial_state, **kwargs)
+        for layer in self.layers[1:]:
+            X = layer(X, *args, **kwargs)
+        return X
+
+class DisassemblyEncoder:
     '''
     Encoder model.
     '''
@@ -92,19 +130,29 @@ class _DisassemblyEncoder:
         self.input_shape = (params['x_seq_len'], params['input_size'])
         self.inputs      = keras.layers.Input(shape=self.input_shape)
         # Create the recurrent layer(s).
-        self.recurrent = _make_recurrent_layer(params, return_state=True)
+        self.recurrent = RecurrentStack(
+            params,
+            return_sequences = False,
+            return_state     = True
+        )
         # Create the output. The output of encoder is the predictions and either one (RNN, GRU) or two (LSTM) internal
         # states. We just want the states to pass to the decoder.
-        outputs = self.recurrent(self.inputs)
+        outputs                  = self.recurrent(self.inputs)
         self.outputs, self.state = _split_recurrent_states(outputs)
         assert self.state is not None
         # Create the model.
         self.model = keras.Model(self.inputs, self.state)
 
-    def __call__(self, *args, **kwargs):
+    def call(self, *args, **kwargs):
+        '''
+        Forwards pass. See `keras.Model.call`
+        '''
         return self.model(*args, **kwargs)
 
-class _DisassemblyDecoder:
+    def __call__(self, *args, **kwargs):
+        return self.call(*args, **kwargs)
+
+class DisassemblyDecoder:
     '''
     Decoder model.
     '''
@@ -113,10 +161,14 @@ class _DisassemblyDecoder:
         self.input_shape = (params['y_seq_len'], params['output_size'])
         self.inputs      = keras.layers.Input(shape=self.input_shape)
         # Create the hidden layer(s).
-        self.recurrent = _make_recurrent_layer(params, return_sequences=True, return_state=True)
+        self.recurrent = RecurrentStack(
+            params,
+            return_sequences = True,
+            return_state     = True
+        )
         # Create the outputs with the hidden state of the encoder as the decoder's initial state.
-        outputs = self.recurrent(self.inputs, initial_state=initial_state)
-        outputs = outputs[0] # Ignore state.
+        outputs    = self.recurrent(self.inputs, initial_state=initial_state)
+        outputs, _ = _split_recurrent_states(outputs)
         # Create the dense layer which maps from hidden space to output space.
         self.dense   = keras.layers.Dense(params['output_size'], params['dense_activation'])
         self.outputs = self.dense(outputs)
@@ -127,16 +179,22 @@ class _DisassemblyDecoder:
         if params['recurrent_unit'] == 'lstm':
             # Add second state for LSTM.
             inf_states_inputs.append(keras.layers.Input(shape=state_shape))
-        inf_outputs = self.recurrent(self.inputs, initial_state=inf_states_inputs)
+        inf_outputs             = self.recurrent(self.inputs, initial_state=inf_states_inputs)
         inf_outputs, inf_states = _split_recurrent_states(inf_outputs)
-        # Create the model.
+        # Create the inference model.
         self.model = keras.Model(
             [self.inputs] + inf_states_inputs,
             [inf_outputs] + inf_states
         )
 
-    def __call__(self, *args, **kwargs):
+    def call(self, *args, **kwargs):
+        '''
+        Forwards pass. See `keras.Model.call`
+        '''
         return self.model(*args, **kwargs)
+
+    def __call__(self, *args, **kwargs):
+        return self.call(*args, **kwargs)
 
 class Disassembler(keras.Model):
     '''
@@ -184,31 +242,21 @@ class Disassembler(keras.Model):
             output_size = output_size,
             **kwargs
         )
-        encoder = _DisassemblyEncoder(params)
-        decoder = _DisassemblyDecoder(params, encoder.state)
+        encoder = DisassemblyEncoder(params)
+        decoder = DisassemblyDecoder(params, encoder.state)
         super().__init__([encoder.inputs, decoder.inputs], decoder.outputs)
-        self.params     = params
-        self.encoder    = encoder
-        self.decoder    = decoder
-        self.train_mode = True
+        self.params  = params
+        self.encoder = encoder
+        self.decoder = decoder
         self._compile()
 
-    def __call__(self, *args, **kwargs):
-        if self.train_mode:
-            return super().__call__(*args, **kwargs)
+    def call(self, *args, **kwargs):
+        '''
+        Forwards pass. See `keras.Model.call`
+        '''
+        if kwargs.get('training', False):
+            return super().call(*args, **kwargs)
         return self.infer(*args, **kwargs)
-
-    def training_mode(self):
-        '''
-        Enable training mode.
-        '''
-        self.train_mode = True
-
-    def inference_mode(self):
-        '''
-        Enable inference mode.
-        '''
-        self.train_mode = False
 
     def infer(self, *args, **kwargs):
         '''
@@ -260,3 +308,11 @@ class Disassembler(keras.Model):
             self.params['loss'],
             metrics=self.params['metrics']
         )
+
+# Custom objects
+CUSTOM_OBJECTS = {
+    'Disassembler':       Disassembler,
+    'DisassemblyDecoder': DisassemblyDecoder,
+    'DisassemblyEncoder': DisassemblyEncoder,
+    'RecurrentStack':     RecurrentStack
+}

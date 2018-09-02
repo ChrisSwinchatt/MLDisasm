@@ -285,12 +285,6 @@ def _do_load_training(file, codecs, block_size, max_records, line_num=1):
         # Split on newline and discard records above the maximum.
         lines     = data.split('\n')
         num_lines = min(len(lines), max_records)
-        if num_lines % 2 != 0:
-            log.warning(
-                'An even number of training examples is required but {} were loaded, '
-                'the last example will not be used'.format(num_lines)
-            )
-            num_lines -= 1
         # Process the records and rewind to account for any extra records read.
         X = [None]*num_lines
         y = [None]*num_lines

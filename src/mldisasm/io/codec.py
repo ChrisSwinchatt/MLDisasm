@@ -11,7 +11,7 @@ import numpy as np
 import tensorflow       as tf
 import tensorflow.keras as keras
 
-from mldisasm.constants import ASCII_MAX, BYTE_MAX, BYTEORDER
+from mldisasm.constants import ASCII_MAX, BYTE_MAX, BYTEORDER, START_TOKEN, STOP_TOKEN
 from mldisasm.util      import log
 
 # Maximum value of a byte.
@@ -35,9 +35,6 @@ class Codec(metaclass=ABCMeta):
         '''
         raise NotImplementedError
 
-START_SEQ = '\t'
-STOP_SEQ  = '\n'
-
 class AsciiCodec(Codec):
     '''
     Encode ASCII as one-hot vectors, or decode one-hot vectors into ASCII.
@@ -53,10 +50,12 @@ class AsciiCodec(Codec):
         :param as_tensor: Whether to encode as a tensor or a list.
         :returns: A one-hot encoded matrix representing the ASCII string.
         '''
-        # Create indices with the start and end tokens added.
+        # Create indices and insert start and end tokens if not present.
         indices = list(map(ord, seq))
-        indices.insert(0, ord(START_SEQ))
-        indices.append(ord(STOP_SEQ))
+        if seq[0] != START_TOKEN:
+            indices.insert(0, ord(START_TOKEN))
+        if seq[-1] != STOP_TOKEN:
+            indices.append(ord(STOP_TOKEN))
         # Convert to onehot and pad to seq_len.
         onehot = list(keras.utils.to_categorical(indices, num_classes=ASCII_MAX + 1))
         while len(onehot) < self._seq_len:
@@ -86,8 +85,14 @@ class AsciiCodec(Codec):
         # Map if dimensionality is greater than 2.
         if len(onehot.shape) > 2:
             return list(map(self.decode, onehot))
-        # Decode into a string, filtering out empty one-hot vectors.
-        return ''.join(map(lambda oh: chr(np.argmax(oh)), onehot))
+        # Decode into a string, filtering out one-hot vectors whose elements are all 0.
+        return ''.join(map(
+            lambda oh: chr(np.argmax(oh)),
+            filter(
+                lambda oh: np.max(oh) > 0,
+                onehot
+            )
+        ))
 
 class BytesCodec(Codec):
     '''
@@ -135,11 +140,12 @@ class BytesCodec(Codec):
         '''
         if not isinstance(tensor, tf.Tensor):
             raise TypeError('Expected Tensor, not {}'.format(type(tensor).__name__))
-        xs = map(
-            lambda x: int(x[0]*BYTE_MAX),
+        # Compute the argmax of each one-hot vector, filtering out those whose elements are all zero.
+        indices = map(
+            np.argmax,
             filter(
-                lambda x: x >= 0,
+                lambda oh: np.max(oh) > 0,
                 tensor.eval()
             )
         )
-        return bytes(xs)
+        return bytes(indices)
