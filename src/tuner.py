@@ -22,107 +22,37 @@ if __name__ == '__main__':
     print('*** Starting up...')
 
 import tensorflow               as tf
-import tensorflow.keras         as keras
 import tensorflow.keras.backend as K
 
-from mldisasm.fixes           import fix_output_size
-from mldisasm.io.codec        import AsciiCodec
+from mldisasm.io.codec        import AsciiCodec, BytesCodec
 from mldisasm.io.file_manager import FileManager
-from mldisasm.model           import Disassembler
 from mldisasm.util            import log, prof, refresh_graph
+from mldisasm.training        import parameter_grid, kfolds_train
 
 RANDOM_SEED = 1
 
-def parameter_grid(params):
+def train_model(config, params, file_mgr, model_name, codecs):
     '''
-    Get a list of parameter sets from a set of parameters whose values are lists.
-    '''
-    keys, values = zip(*sorted(params.items()))
-    sizes        = [len(v) for v in values]
-    total_size   = np.product(sizes)
-    grid         = [None]*total_size
-    for i in range(total_size):
-        grid[i] = dict()
-        idx     = i
-        for k, vs, size in zip(keys, values, sizes):
-            idx, off   = divmod(idx, size)
-            grid[i][k] = vs[off]
-    return grid
-
-def cv_split(X, y):
-    '''
-    Split a training set in half for cross-validation.
-    '''
-    X_train, X_test = tf.split(X, 2)
-    y_train, y_test = tf.split(y, 2)
-    return X_train, y_train, X_test, y_test
-
-def fit_model(config, params, file_mgr, model_name, y_codec):
-    '''
-    Fit a model to a set of parameters and return the loss during cross-validation.
+    Train a model with a set of parameters and return the average accuracy and loss during cross-validation.
     '''
     # Seed PRNG with a fixed value so each model gets the same sequence of numbers.
     random.seed(RANDOM_SEED)
     np.random.seed(RANDOM_SEED)
     tf.set_random_seed(RANDOM_SEED)
-    # Get a fresh TF graph.
-    refresh_graph()
-    # Append training callbacks.
-    callbacks = []
-    if params.get('stop_early', False):
-        callbacks.append(keras.callbacks.EarlyStopping(
-            monitor='val_loss',
-            patience=params.get('patience', 0)
-        ))
-    # Create training set generator.
-    generator = file_mgr.yield_training(
+    # Create training set generator and train with kfolds.
+    batches = file_mgr.yield_training(
         model_name,
-        y_codec,
+        codecs,
         params['batch_size'],
-        keras_mode=True
+        loop_mode   = True,
+        max_records = config['gs_records']
     )
-    # Train and validate the model.
-    model       = Disassembler(**params)
-    num_batches = min(config['gs_records'],config['max_records'])//params['batch_size']
-    total_loss  = 0
-    total_acc   = 0
-    loss        = np.inf
-    acc         = -np.inf
-    batch_num = 1
-    for X, y in generator:
-        with prof(
-            'Batch {}/{}: {}% accuracy, loss={}',
-            batch_num, num_batches, lambda: 100*acc, lambda: loss,
-            log_level='info'
-        ):
-            # Train with cross-validation.
-            X_train, y_train, X_test, y_test = cv_split(X, y)
-            # Train and cross-validate using the split.
-            model.train_on_batch(X_train, y_train)
-            metrics = model.test_on_batch(X_test, y_test)
-            # Extract metrics.
-            if model.metrics_names == ['acc','loss']:
-                acc, loss = metrics
-            elif model.metrics_names == ['loss','acc']:
-                loss, acc = metrics
-            else:
-                raise ValueError('Unrecognised metrics names: {}'.format(','.join(model.metrics_names)))
-            # Since we are only using 1% of the total training set, we don't want to "waste" any examples, so we train
-            # on the validation samples. This effectively doubles the training set without having to load twice as many
-            # examples.
-            model.train_on_batch(X_test, y_test)
-            # Refresh the graph each ten batches to prevent TF slowdown.
-            if batch_num % 10 == 0:
-                model = refresh_graph(model=model, build_fn=Disassembler, **params)
-            if batch_num >= num_batches:
-                break
-            total_loss += loss
-            total_acc  += acc
-            batch_num += 1
-    # Return the average loss and accuracy.
-    return total_loss/batch_num, total_acc/batch_num
+    acc, loss = kfolds_train(batches, params, num_batches=config['gs_records']//params['batch_size'])
+    # Clean up the TF graph.
+    refresh_graph()
+    return acc, loss
 
-def select_params(config, file_mgr, model_name, y_codec):
+def select_params(config, file_mgr, model_name, codecs):
     '''
     Select hyperparameters by gridsearch with cross-validation.
     '''
@@ -139,13 +69,13 @@ def select_params(config, file_mgr, model_name, y_codec):
     acc         = 0
     for grid_params in grid:
         with prof(
-            'Fit grid {} with {}% accuracy, loss={}', fit_num, lambda: 100*acc, lambda: loss, 4,
+            'Grid {}/{}: acc={}%, loss={}', fit_num, num_fits, lambda: 100*acc, lambda: round(loss, 4),
             log_level='info',
-            start_msg='Fitting grid {} of {} with parameters {}'.format(fit_num, num_fits, grid_params)
+            start_msg='Grid {}/{}: {}'.format(fit_num, num_fits, grid_params)
         ):
             params = dict(config['model'])
             params.update(grid_params)
-            loss, acc = fit_model(config, params, file_mgr, model_name, y_codec)
+            loss, acc = train_model(config, params, file_mgr, model_name, codecs)
             # Select model by accuracy.
             if acc > best_acc:
                 best_acc = acc
@@ -174,16 +104,14 @@ if __name__ == '__main__':
     # Train a model.
     try:
         # Load configuration and set TF device.
-        config  = file_mgr.load_config()
-        tokens  = file_mgr.load_tokens()
-        y_codec = AsciiCodec(config['seq_len'], config['mask_value'], tokens)
-        # Apply output_size workaround.
-        fix_output_size(config, tokens)
+        config  = file_mgr.load_config(model_name)
+        x_codec = BytesCodec(config['model']['x_seq_len'], config['model']['mask_value'])
+        y_codec = AsciiCodec(config['model']['y_seq_len'], config['model']['mask_value'])
         # Find and save hyperparameters.
         K.set_learning_phase(1)
-        config['model'] = select_params(config, file_mgr, model_name, y_codec)
+        config['model'] = select_params(config, file_mgr, model_name, (x_codec,y_codec))
         del config['grid']
-        file_mgr.save_config(config)
+        file_mgr.save_config(model_name, config)
     except Exception as e:
         log.debug('====================[ UNCAUGHT EXCEPTION ]====================')
         log.error('Uncaught exception \'{}\': {}'.format(type(e).__name__, str(e).split('\n')[0]))

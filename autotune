@@ -5,20 +5,25 @@
 here=$(dirname "$0")
 name=$(basename "$0")
 
+[[ $# -gt 0 ]] || ( echo "Usage: $0 <model name>" >&2 ; exit 1 )
+
+model_name="$1"
+
 data_dir="${here}/data"
-grid_dir="${data_dir}/grids"
+model_dir="${data_dir}/${model_name}"
+grid_dir="${model_dir}/grids"
 log_path="${data_dir}/mldisasm.log"
-config_path="${data_dir}/config.json"
+config_path="${model_dir}/config.json"
 config_bak="${config_path}~"
 
 mkdir -p "${grid_dir}"
 
-for grid in ${grid_dir}/*; do
+for grid in "${grid_dir}"/*; do
     if [[ ! -x "${grid}" ]]; then
         echo "$0: Skipping non-executable file ${grid}" >&2
         continue
     fi
-    # Back up the previous config.
+    # Back up the current config.
     cp   "${config_path}" "${config_bak}"
     # Append the grid to the config file.
     tmp_path=$(mktemp)
@@ -29,6 +34,12 @@ for grid in ${grid_dir}/*; do
     echo "}" >>"${config_path}"
     # Select parameters from the grid.
     "${here}/tune" "${model_name}"
+    if [[ $? -ne 0 ]]; then
+        # If tune failed, restore backed up config and quit.
+        echo "$0: tune returned error code: $?" >&2
+        cp   "${config_bak}" "${config_path}"
+        exit 1
+    fi
     # Copy the log file.
     log_name=$(basename "${grid%.json}")
     log_dest="${log_dir}/${log_name}.log"

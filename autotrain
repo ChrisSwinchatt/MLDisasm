@@ -17,6 +17,7 @@ EOF
 fi
 
 model_name="$1"
+
 data_dir="${here}/data"
 log_path="${data_dir}/mldisasm.log"
 model_dir="${data_dir}/${model_name}"

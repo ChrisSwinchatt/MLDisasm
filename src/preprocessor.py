@@ -78,8 +78,8 @@ if __name__ == '__main__':
     log.init(file_mgr.open_log())
     config   = file_mgr.load_config()
     tokens   = file_mgr.load_tokens()
-    x_codec  = BytesCodec(config['seq_len'], config['mask_value'])
-    y_codec  = AsciiCodec(config['seq_len'], config['mask_value'], tokens)
+    x_codec  = BytesCodec(config['x_seq_len'], config['mask_value'])
+    y_codec  = AsciiCodec(config['y_seq_len'], config['mask_value'], tokens)
     tset_in  = file_mgr.open_training_raw(model_name)
     tset_out = file_mgr.open_training_pp(model_name)
     # Encode training set. Our strategy is to read one record per worker thread (n_threads), then wait for at least one

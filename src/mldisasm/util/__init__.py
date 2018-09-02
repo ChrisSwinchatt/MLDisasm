@@ -50,10 +50,8 @@ def refresh_graph(model=None, build_fn=None, args=None, **kwargs):
         tmp_file = None
         if model is not None:
             tmp_file, tmp_path = tempfile.mkstemp()
-            model.save_weights(tmp_path)
+            model.save(tmp_path)
             del model
-            model = None
-            del tmp_file
         # Clear the graph and collect freed memory.
         K.clear_session()
         gc.collect()
@@ -61,12 +59,14 @@ def refresh_graph(model=None, build_fn=None, args=None, **kwargs):
         if tmp_path is not None:
             if args is None:
                 args = tuple()
-            model = build_fn(*args, **kwargs)
-            model.load_weights(tmp_path)
+            #model = build_fn(*args, **kwargs)
+            #model.load_weights(tmp_path)
+            model = keras.models.load_model(tmp_path)
+            # Close FD.
+            os.close(tmp_file)
+            # Remove the file. Suppress PermissionError.
             try:
                 os.remove(tmp_path)
-            except PermissionError as e:
-                log.warning('Failed to delete temporary file because "{}"'.format(
-                    str(e)
-                ))
+            except PermissionError:
+                pass
         return model

@@ -11,7 +11,8 @@ import numpy as np
 import tensorflow       as tf
 import tensorflow.keras as keras
 
-from mldisasm.util import log
+from mldisasm.constants import ASCII_MAX, BYTE_MAX, BYTEORDER
+from mldisasm.util      import log
 
 # Maximum value of a byte.
 BYTE_MAX  = 0xFF
@@ -34,72 +35,16 @@ class Codec(metaclass=ABCMeta):
         '''
         raise NotImplementedError
 
-def _recursive_map(f, t, *args, axis=0, **kwargs):
-    '''
-    Recursively map a function over a tensor until reaching the given axis.
-    '''
-    if t.shape.ndims == axis + 1:
-        return tf.map_fn(f, t, *args, **kwargs)
-    return tf.map_fn(lambda x: _recursive_map(f, x, *args, **kwargs), t, *args, **kwargs)
+START_SEQ = '\t'
+STOP_SEQ  = '\n'
 
 class AsciiCodec(Codec):
     '''
     Encode ASCII as one-hot vectors, or decode one-hot vectors into ASCII.
     '''
-    def __init__(self, seq_len, mask_value, tokens):
+    def __init__(self, seq_len, mask_value):
         self._seq_len    = seq_len
         self._mask_value = mask_value
-        self._tokens     = tokens
-
-    def encode_lite(self, seq, as_tensor=True):
-        '''
-        Encode an ASCII string as a vector of token indices.
-        :param seq: The ASCII string.
-        :param as_tensor: Whether to encode to a tensor or return a list.
-        :returns: A tensor with one index per token in the string.
-        '''
-        # Check parameter.
-        if not isinstance(seq, str):
-            raise TypeError('Expected str, not {}'.format(type(seq).__name__))
-        if not seq:
-            raise ValueError('Received empty string')
-        # Tokenise the string and convert TokenList indices to reals between 0 and 1.
-        tokens  = self._tokens.tokenize(seq)
-        indices = [[self._tokens.index(t)] for t in tokens]
-        if as_tensor:
-            return tf.convert_to_tensor(indices)
-        # Pad to seq_len.
-        if len(indices) > self._seq_len:
-            log.warning('Expected {} elements or fewer, got {}'.format(self._seq_len, len(indices)))
-        while len(indices) < self._seq_len:
-            indices.append([self._mask_value])
-        return indices
-
-    def onehotify(self, indices):
-        '''
-        Convert a vector of token indices to a one-hot matrix.
-        :param indices: A list or ndarray containing the indices. Negative indices are interpreted as masked values and
-        will produce vectors whose elements are all zeros.
-        :returns: A one-hot encoded matrix (ndarray).
-        '''
-        shape = np.shape(indices)
-        # For legacy reasons the indices shape is (batch_size,seq_len,1). To handle arrays with 1, 2 and 3 dimensions
-        # transparently, we map over dim 0 and squeeze out dim 2, so that the indices we actually process has shape
-        # (seq_len,).
-        if len(shape) == 3:
-            return np.asarray(list(map(self.onehotify, indices)))
-        if len(shape) == 2:
-            indices = np.squeeze(indices)
-        onehot = keras.utils.to_categorical(indices, len(self._tokens))
-        # Workaround: Keras interparamsets negative indices as offsets from the end of the vector, so that -1 in a
-        # 4-class vector would produce [0,0,0,1]. We want to interpret negative values as being masked/invalid, so we
-        # patch these values with 0. (tf.one_hot() produces zeroed vectors for negative indices, but we don't want to
-        # return a tensor here.)
-        for i, idx in enumerate(indices):
-            if idx < 0:
-                j = len(onehot[i]) + idx
-                onehot[i,j] = 0
-        return onehot
 
     def encode(self, seq, as_tensor=True):
         '''
@@ -108,37 +53,41 @@ class AsciiCodec(Codec):
         :param as_tensor: Whether to encode as a tensor or a list.
         :returns: A one-hot encoded matrix representing the ASCII string.
         '''
-        indices = self.encode_lite(seq, as_tensor=False)
-        onehot  = self.onehotify(indices)
+        # Create indices with the start and end tokens added.
+        indices = list(map(ord, seq))
+        indices.insert(0, ord(START_SEQ))
+        indices.append(ord(STOP_SEQ))
+        # Convert to onehot and pad to seq_len.
+        onehot = list(keras.utils.to_categorical(indices, num_classes=ASCII_MAX + 1))
+        while len(onehot) < self._seq_len:
+            onehot.append([0]*len(onehot[0]))
+        onehot = np.asarray(onehot, dtype=np.int32)
+        # Convert to tensor and/or return.
         if as_tensor:
-            onehot = tf.convert_to_tensor(onehot)
+            return tf.convert_to_tensor(onehot, dtype=tf.int32)
         return onehot
 
-    def decode(self, tensor):
+    def decode(self, onehot):
         '''
         Decode a tensor of token indices into an ASCII string tensor.
-        :param tensor: A 3D tensor or NumPy array of shape (batch_size,seq_len,1) containing the token indices.
-        :returns: A list of strings, one per sample in the tensor.
+        :param onehot: A list of one-hot vectors encoding ASCII characters.
+        :returns: The decoded string if onehot is a 2D matrix, or a list of such strings if onehot is 3D.
         '''
-        # Check type and evaluate into NumPy array if needed.
-        if isinstance(tensor, tf.Tensor):
-            tensor = tensor.eval()
-        elif not isinstance(tensor, np.ndarray):
-            raise TypeError('Expected Tensor or ndarray, not {}'.format(type(tensor).__name__))
-        # Check dimensions. Fail if we don't have two or more. Map over tensor if we have more than two.
-        ndims = len(tensor.shape)
-        if ndims > 2:
-            return list(map(self.decode, tensor))
-        if ndims < 2:
-            raise ValueError('Expected at least two dimensions, got {}'.format(ndims))
-        # Convert one-hot vectors into tokens. The vectors returned by the model will contain probabilities; we consider
-        # the "hot" element to be the one with the largest value (argmax).
-        tokens = [None]*len(tensor)
-        for i in range(len(tensor)):
-            idx       = np.argmax(tensor[i])
-            tokens[i] = self._tokens[idx]
-        # Join tokens into string and remove trailing whitespace.
-        return ' '.join(tokens).rstrip()
+        # Check type and convert into NumPy array if needed.
+        if isinstance(onehot, tf.Tensor):
+            onehot = onehot.eval()
+        elif isinstance(onehot, list):
+            onehot = np.asarray(onehot)
+        elif not isinstance(onehot, np.ndarray):
+            raise TypeError('Expected Tensor or ndarray, not {}'.format(type(onehot).__name__))
+        # Fail if dimensionality is less than 2.
+        if len(onehot.shape) < 2:
+            raise ValueError('Expected at least two dimensions, got {}'.format(len(onehot.shape)))
+        # Map if dimensionality is greater than 2.
+        if len(onehot.shape) > 2:
+            return list(map(self.decode, onehot))
+        # Decode into a string, filtering out empty one-hot vectors.
+        return ''.join(map(lambda oh: chr(np.argmax(oh)), onehot))
 
 class BytesCodec(Codec):
     '''
@@ -154,28 +103,35 @@ class BytesCodec(Codec):
 
     def encode(self, bs, as_tensor=True):
         '''
-        Encode a bytes object as a tensor of float values.
-        :param bs: The bytes.
+        Encode a bytes to one-hot.
+        :param bs: Either a bytes object or a string of hex-encoded bytes.
         :param as_tensor: Whether to return a tensor (True) or a list (False).
-        :returns: A tensor or list of float values.
+        :returns: A matrix of the one-hot encoded bytes.
         '''
+        if isinstance(bs, str):
+            # Convert to bytes from hex string.
+            bs = int(bs, 16).to_bytes(
+                len(bs)//2, # Every two chars in hexadecimal is one byte.
+                BYTEORDER
+            )
         if not isinstance(bs, bytes):
             raise TypeError('Expected bytes, not {}'.format(type(bs).__name__))
-        bslen = len(bs)
-        if bslen > self._seq_len:
-            raise ValueError('Length of bytes ({}) is larger than sequence length ({})'.format(bslen, self._seq_len))
-        xs = [[float(byte)/BYTE_MAX] for byte in bs]
-        if len(xs) > self._seq_len:
-            log.warning('Expected {} elements or fewer, got {}'.format(self._seq_len, len(xs)))
-        while len(xs) < self._seq_len:
-            xs.append([self._mask_value])
+        # Convert bytes into integers.
+        indices = list(bs)
+        if len(indices) > self._seq_len:
+            log.warning('Expected {} elements or fewer, got {}'.format(self._seq_len, len(indices)))
+        # Encode as one-hot and pad to seq_len.
+        onehot = list(keras.utils.to_categorical(indices, num_classes=BYTE_MAX + 1))
+        while len(onehot) < self._seq_len:
+            onehot.append([0]*len(onehot[0]))
+        onehot = np.asarray(onehot, dtype=np.int32)
         if as_tensor:
-            return tf.convert_to_tensor(xs)
-        return xs
+            return tf.convert_to_tensor(onehot, dtype=tf.int32)
+        return onehot
 
     def decode(self, tensor):
         '''
-        Decode a float tensor into a bytes object.
+        Decode a one-hot tensor into a bytes object.
         '''
         if not isinstance(tensor, tf.Tensor):
             raise TypeError('Expected Tensor, not {}'.format(type(tensor).__name__))
