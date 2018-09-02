@@ -34,11 +34,11 @@ def train_model(file_mgr, config, codecs, name):
     for epoch in range(1, num_epochs + 1):
         _, _, model = train_epoch(
             model,
-            file_mgr.yield_training(name, codecs, config['batch_size'], max_records=config['max_records']),
+            file_mgr.yield_training(name, codecs, params['batch_size'], max_records=config['max_records']),
             epoch,
             num_epochs,
             params,
-            config['max_records']//config['batch_size']
+            config['max_records']//params['batch_size']
         )
     return model
 

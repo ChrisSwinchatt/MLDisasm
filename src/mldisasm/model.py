@@ -3,7 +3,7 @@
 '''
 MLDisasm disassembler model.
 
-See: https://blog.keras.io/a-ten-minute-introduction-to-sequence-to-sequence-learning-in-keras.html
+Based on https://blog.keras.io/a-ten-minute-introduction-to-sequence-to-sequence-learning-in-keras.html
 '''
 
 import inspect
@@ -72,71 +72,71 @@ def _make_recurrent_layer(params, **kwargs):
     else:
         raise ValueError('Invalid value for recurrent_unit: {}'.format(params['recurrent_unit']))
 
-class _DisassemblyEncoder(keras.Model):
+def _split_recurrent_states(outputs):
+    n = len(outputs)
+    if n == 2:
+        return outputs[0], outputs[1]
+    elif n == 3:
+        return outputs[0], [outputs[1],outputs[2]]
+    raise TypeError('Expected tuple with 1 output and either 1 or 2 states, got {} of length {} instead'.format(
+        type(outputs).__name__,
+        n
+    ))
+
+class _DisassemblyEncoder:
     '''
     Encoder model.
     '''
     def __init__(self, params):
         # Create the input layer.
-        # NB: keras.Model prevents us from setting attributes before calling its __init__, so we create our objects then
-        # call super().__init__, and then save the objects as attributes.
-        input_shape = (params['x_seq_len'], params['input_size'])
-        inputs      = keras.layers.Input(shape=input_shape)
+        self.input_shape = (params['x_seq_len'], params['input_size'])
+        self.inputs      = keras.layers.Input(shape=self.input_shape)
         # Create the recurrent layer(s).
-        recurrent = _make_recurrent_layer(params, return_state=True)
+        self.recurrent = _make_recurrent_layer(params, return_state=True)
         # Create the output. The output of encoder is the predictions and either one (RNN, GRU) or two (LSTM) internal
         # states. We just want the states to pass to the decoder.
-        outputs = recurrent(inputs)
-        state   = None
-        if len(outputs) == 2:
-            state = outputs[1]
-        elif len(outputs) == 3:
-            state = [outputs[1], outputs[2]]
-        else:
-            raise TypeError('Expected tuple with length of either two or three, got {} of length {}'.format(
-                type(outputs).__name__,
-                len(outputs)
-            ))
-        assert state is not None
-        super().__init__(inputs, state)
-        self.inputs    = inputs
-        self.recurrent = recurrent
-        self.state     = state
-        self.outputs   = outputs[0] # Remove state.
+        outputs = self.recurrent(self.inputs)
+        self.outputs, self.state = _split_recurrent_states(outputs)
+        assert self.state is not None
+        # Create the model.
+        self.model = keras.Model(self.inputs, self.state)
 
-class _DisassemblyDecoder(keras.Model):
+    def __call__(self, *args, **kwargs):
+        return self.model(*args, **kwargs)
+
+class _DisassemblyDecoder:
     '''
     Decoder model.
     '''
     def __init__(self, params, initial_state):
         # Create the input layer.
-        input_shape = (params['y_seq_len'], params['output_size'])
-        inputs      = keras.layers.Input(shape=input_shape)
+        self.input_shape = (params['y_seq_len'], params['output_size'])
+        self.inputs      = keras.layers.Input(shape=self.input_shape)
         # Create the hidden layer(s).
-        recurrent = _make_recurrent_layer(params, return_sequences=True, return_state=True)
+        self.recurrent = _make_recurrent_layer(params, return_sequences=True, return_state=True)
         # Create the outputs with the hidden state of the encoder as the decoder's initial state.
-        outputs = recurrent(inputs, initial_state=initial_state)
+        outputs = self.recurrent(self.inputs, initial_state=initial_state)
         outputs = outputs[0] # Ignore state.
         # Create the dense layer which maps from hidden space to output space.
-        dense   = keras.layers.Dense(params['output_size'], params['dense_activation'])
-        outputs = dense(outputs)
+        self.dense   = keras.layers.Dense(params['output_size'], params['dense_activation'])
+        self.outputs = self.dense(outputs)
         # Set up model for inference. During inference the decoder's states are appended to its inputs.
-        state_shape=(params['hidden_size'],)
+        state_shape       = (params['hidden_size'],)
         inf_states_inputs = []
         inf_states_inputs.append(keras.layers.Input(shape=state_shape))
         if params['recurrent_unit'] == 'lstm':
             # Add second state for LSTM.
             inf_states_inputs.append(keras.layers.Input(shape=state_shape))
-        inf_outputs = recurrent(inputs, initial_state=inf_states_inputs)
-        inf_states  = inf_outputs[1:]
-        super().__init__(
-            [inputs]      + inf_states_inputs,
+        inf_outputs = self.recurrent(self.inputs, initial_state=inf_states_inputs)
+        inf_outputs, inf_states = _split_recurrent_states(inf_outputs)
+        # Create the model.
+        self.model = keras.Model(
+            [self.inputs] + inf_states_inputs,
             [inf_outputs] + inf_states
         )
-        self.inputs    = inputs
-        self.recurrent = recurrent
-        self.dense     = dense
-        self.outputs   = outputs
+
+    def __call__(self, *args, **kwargs):
+        return self.model(*args, **kwargs)
 
 class Disassembler(keras.Model):
     '''
@@ -186,7 +186,7 @@ class Disassembler(keras.Model):
         )
         encoder = _DisassemblyEncoder(params)
         decoder = _DisassemblyDecoder(params, encoder.state)
-        super().__init__([encoder.inputs,decoder.inputs], decoder.outputs)
+        super().__init__([encoder.inputs, decoder.inputs], decoder.outputs)
         self.params     = params
         self.encoder    = encoder
         self.decoder    = decoder
