@@ -1,0 +1,3 @@
+{
+    "dense_activation": ["sigmoid","softmax"]
+}

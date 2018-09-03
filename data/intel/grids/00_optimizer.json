@@ -1,0 +1,37 @@
+{
+    "optimizer": [
+        "Adadelta",
+        "Adagrad",
+        "Adam",
+        "Adamax",
+        "Nadam",
+        "RMSprop",
+        "SGD"
+    ],
+    "opt_params": [
+        {
+            "lr": 10.0
+        },
+        {
+            "lr": 1.0
+        },
+        {
+            "lr": 0.1
+        },
+        {
+            "lr": 0.01
+        },
+        {
+            "lr": 0.001
+        },
+        {
+            "lr": 0.0001
+        },
+        {
+            "lr": 0.00001
+        },
+        {
+            "lr": 0.000001
+        }
+    ]
+}

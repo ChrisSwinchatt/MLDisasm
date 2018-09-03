@@ -1,6 +1,10 @@
 .vscode/
 .pytest_cache
 __pycache__/
-data/
 *.pyc
 *~
+*.csv
+*.list
+*.log
+*.h5
+*.bin
