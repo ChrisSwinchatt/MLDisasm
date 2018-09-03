@@ -11,8 +11,9 @@ import tempfile
 import tensorflow.keras         as keras
 import tensorflow.keras.backend as K
 
-from .     import log
-from .prof import *
+from .          import log
+from .prof      import *
+from .force_cpu import force_cpu
 
 def refresh_graph(model=None, build_fn=None, args=None, **kwargs):
     '''
@@ -54,6 +55,7 @@ def refresh_graph(model=None, build_fn=None, args=None, **kwargs):
             del model
         # Clear the graph and collect freed memory.
         K.clear_session()
+        force_cpu()
         gc.collect()
         # Rebuild model and restore its weights.
         if tmp_path is not None:

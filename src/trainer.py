@@ -22,6 +22,9 @@ from mldisasm.io.file_manager import FileManager
 from mldisasm.model           import Disassembler
 from mldisasm.training        import train_epoch
 from mldisasm.util            import log, prof
+from mldisasm.util.force_cpu  import force_cpu
+
+force_cpu()
 
 def train_model(file_mgr, config, codecs, name):
     '''

@@ -27,7 +27,11 @@ import tensorflow.keras.backend as K
 from mldisasm.io.codec        import AsciiCodec, BytesCodec
 from mldisasm.io.file_manager import FileManager
 from mldisasm.util            import log, prof, refresh_graph
+from mldisasm.util.force_cpu  import force_cpu
 from mldisasm.training        import parameter_grid, kfolds_train
+
+# Force TF to use the CPU.
+force_cpu()
 
 RANDOM_SEED = 1
 

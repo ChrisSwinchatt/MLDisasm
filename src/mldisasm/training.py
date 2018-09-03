@@ -22,9 +22,8 @@ def grids(params):
     total_size   = np.product(sizes)
     for i in range(total_size):
         grid = dict()
-        idx  = i
         for k, vs, size in zip(keys, values, sizes):
-            idx, off   = divmod(idx, size)
+            i, off  = divmod(i, size)
             grid[k] = vs[off]
         yield grid
 
@@ -49,8 +48,10 @@ def kfolds(n, k=3, shuffle=True):
     for i in range(k):
         # Generate the indices for the fold. The test fold is everything from [i*m, (i + 1)*m); the training fold is
         # everything else.
-        train = np.asarray(list(range(i*m)) + list(range((i + 1)*m, k*m)), dtype=np.int32)
-        test  = np.asarray(list(range(i*m, (i + 1)*m)), dtype=np.int32)
+        start = i*m
+        end   = (i + 1)*m + 1
+        test  = np.array(list(range(start, end)),                         dtype=np.int32)
+        train = np.array(list(range(0,     start)) + list(range(end, n)), dtype=np.int32)
         if shuffle:
             np.random.shuffle(train)
             np.random.shuffle(test)
@@ -76,7 +77,7 @@ def _extract_metrics(model, metrics):
         raise ValueError('Unrecognised metrics names: {}'.format(','.join(model.metrics_names)))
     return acc, loss
 
-def train_batch(model, X, y, batch_num, params=None, refresh_step=10, num_batches=-1):
+def train_batch(model, X, y, batch_num, params=None, refresh_step=10, num_batches=None, epoch=None, num_epochs=None):
     '''
     Train a model on one batch of samples.
     :param model: The model.
@@ -85,19 +86,26 @@ def train_batch(model, X, y, batch_num, params=None, refresh_step=10, num_batche
     :param batch_num: The one-based batch number.
     :param params: Parameters to rebuild model when refreshing the graph, or None to disable graph refreshing and
     rebuilding model.
-    :param refresh_step: How many batches to wait before refreshing the graph. Ignored if params is None. If set to -1
-    while num_batches is positive, refresh_step will be set to num_batches//10.
-    :param num_batches: How many batches there are in total.
+    :param refresh_step: How many batches to wait before refreshing the graph. Ignored if params is None. If set to None
+    while num_batches is not None, refresh_step will be set to num_batches//10.
+    :param num_batches: How many batches there are in total or None.
+    :param epoch: None or the 1-based number of the current epoch.
+    :param num_epochs: None or the total number of epochs.
     :returns: A tuple of the accuracy, loss and model (always returned but only useful if the graph was refreshed).
     '''
     acc, loss = -np.inf, np.inf
     if params is not None and refresh_step < 0 and num_batches > 0:
         refresh_step = num_batches//10
     with prof(
-        'Batch {}{}{}: acc={}%, loss={}',
+        '{}{}{}{}{}Batch {}{}{}: acc={}%, loss={}',
+        'Epoch ' if epoch is not None else '',
+        epoch if epoch is not None else '',
+        '/' if epoch is not None and num_epochs is not None else '',
+        num_epochs if epoch is not None and num_epochs is not None else '',
+        ': ' if epoch is not None else '',
         batch_num,
-        '/' if num_batches > 0 else '',
-        num_batches if num_batches > 0 else '',
+        '/' if num_batches is not None else '',
+        num_batches if num_batches is not None else '',
         lambda: acc*100,
         lambda: loss,
         log_level='info'
@@ -142,7 +150,16 @@ def train_epoch(model, batches, epoch, num_epochs, params=None, num_batches=0):
     ):
         batch_num = 1
         for X, y in batches:
-            acc, loss, model = train_batch(model, X, y, batch_num, params, num_batches=num_batches)
+            acc, loss, model = train_batch(
+                model,
+                X,
+                y,
+                batch_num,
+                params,
+                num_batches=num_batches,
+                epoch=epoch,
+                num_epochs=num_epochs
+            )
             avg_acc  = _running_average(avg_acc,  acc,  batch_num)
             avg_loss = _running_average(avg_loss, loss, batch_num)
             del X, y
