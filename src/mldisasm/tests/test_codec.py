@@ -4,80 +4,48 @@
 Test mldisasm.io.codec
 '''
 
-import numpy as np
+from mldisasm.constants    import START_TOKEN, STOP_TOKEN
+from mldisasm.io.codec     import AsciiCodec, BytesCodec
+from mldisasm.tests.common import *
 
-import tensorflow as tf
+# Disable checking for "instance ... has no ... member" because PyTest test case instance attributes have to be defined
+# outside of __init__.
+# pylint: disable=E1101
 
-from mldisasm.io.codec        import AsciiCodec, BytesCodec
-from mldisasm.io.file_manager import FileManager
-from mldisasm.tests.common    import *
-
-# Model name to test.
-MODEL_NAME = 'att'
-
-# Sequence length.
-SEQ_LEN = 50
-
-# File manager.
-FILE_MGR = None
-
-# Token list.
-TOKENS = None
-
-# Configuration.
-CONFIG = None
-
-def setup_module():
+class TestCodec(GenericTestCase):
     '''
-    Setup.
+    Test codecs.
     '''
-    global TF_DEVICE, TF_SESSION, FILE_MGR, TOKENS, CONFIG
-    # Set device and session.
-    TF_DEVICE  = tf.device(TF_DEVICE).__enter__()
-    TF_SESSION = tf.Session().__enter__()
-    FILE_MGR   = FileManager()
-    TOKENS     = FILE_MGR.load_tokens()
-    CONFIG     = FILE_MGR.load_config()
-
-def teardown_module():
-    '''
-    Teardown.
-    '''
-    TF_SESSION.close()
-
-def random_tokens():
-    '''
-    Generate random tokens.
-    '''
-    count = np.random.randint(1, SEQ_LEN)
-    return ' '.join(np.random.choice(TOKENS, count)).replace('  ', ' ').rstrip()
-
-def test_ascii_codec():
-    '''
-    Test AsciiCodec.
-    '''
-    enter_test(test_ascii_codec)
-    codec = AsciiCodec(SEQ_LEN, CONFIG['mask_value'], TOKENS)
-    for _ in range(TEST_ITERATIONS):
-        enter_test_iter()
-        string  = random_tokens()
+    def _test_ascii_codec_iter(self, codec):
+        string  = START_TOKEN + random_string(SEQ_LEN - 2) + STOP_TOKEN
         encoded = codec.encode(string)
         decoded = codec.decode(encoded)
         assert string == decoded
-        leave_test_iter()
-    leave_test()
 
-def test_bytes_codec():
-    '''
-    Test BytesCodec
-    '''
-    enter_test(test_bytes_codec)
-    codec = BytesCodec(SEQ_LEN, CONFIG['mask_value'])
-    for _ in range(TEST_ITERATIONS):
-        enter_test_iter()
+    def test_ascii_codec(self):
+        '''
+        Test AsciiCodec.
+        '''
+        codec = AsciiCodec(self.config['model']['y_seq_len'], self.config['model']['mask_value'])
+        self.itertest(
+            test=self.test_ascii_codec,
+            func=self._test_ascii_codec_iter,
+            args=(codec,)
+        )
+
+    def _test_bytes_codec_iter(self, codec):
         bs      = random_bytes(SEQ_LEN)
         encoded = codec.encode(bs)
         decoded = codec.decode(encoded)
         assert bs == decoded
-        leave_test_iter()
-    leave_test()
+
+    def test_bytes_codec(self):
+        '''
+        Test BytesCodec
+        '''
+        codec = BytesCodec(self.config['model']['x_seq_len'], self.config['model']['mask_value'])
+        self.itertest(
+            test=self.test_bytes_codec,
+            func=self._test_bytes_codec_iter,
+            args=(codec,)
+        )
