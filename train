@@ -2,7 +2,8 @@
 
 here=$(dirname "$0")
 
-[[ "x${MLD_PYTHON}" = "x" ]] && MLD_PYTHON="python3"
+. "${here}/common"
+
 [[ "${MLD_TRACE}" = "1" ]] && PYTHON_ARGS=("-m trace -l")
 
-time "${MLD_PYTHON}" ${PYTHON_ARGS} "${here}/src/trainer.py" $*
+time "${python}" ${PYTHON_ARGS} "${here}/src/trainer.py" $*

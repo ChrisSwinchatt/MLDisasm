@@ -1,0 +1,100 @@
+#!/usr/bin/env python3
+
+'''Process and plot results.
+
+Usage: {0} <model name>'''
+
+from   glob import glob
+import os
+import re
+import sys
+
+import matplotlib.pyplot as plt
+
+# Directory containing log files.
+LOG_DIR = os.path.join(os.getcwd(), 'data', '{0}', 'logs')
+
+# Log filename glob.
+LOG_GLOB = '*.log'
+
+# Log filename pattern.
+LOG_PATTERN = r'.*[0-9]{2}_(.*)\.log'
+
+# Grid pattern.
+GRID_PATTERN = r'.*Grid [0-9]+\/[0-9]+\: '
+
+# Parameters pattern.
+PARAM_PATTERN = GRID_PATTERN + r'\{(.*)\}'
+
+# Results pattern.
+RESULT_PATTERN = GRID_PATTERN + r'acc=([0-9]+\.[0-9]+)%, loss=([0-9]+\.[0-9]+)'
+
+if __name__ == '__main__':
+    if len(sys.argv) != 2:
+        print(__doc__.format(sys.argv[0]), file=sys.stderr)
+        exit(1)
+    model_name = sys.argv[1]
+    LOG_DIR    = LOG_DIR.format(model_name)
+    log_reg    = re.compile(LOG_PATTERN)
+    param_reg  = re.compile(PARAM_PATTERN)
+    result_reg = re.compile(RESULT_PATTERN)
+    for log_file in glob(os.path.join(LOG_DIR, LOG_GLOB)):
+        # Collect results from the file.
+        title = log_reg.fullmatch(log_file)
+        assert title is not None
+        title = title.expand(r'\1')
+        results = []
+        with open(log_file) as file:
+            param, acc, loss = None, None, None
+            for line in file:
+                # Match parameters pattern. If we have already found param, acc and loss, append them to the results as
+                # a tuple. If we already found param but not acc or loss, it means there were two params in a row, so we
+                # warn the user.
+                match = param_reg.match(line)
+                if match is not None:
+                    if None not in (param,acc,loss):
+                        results.append((param,acc,loss))
+                        acc  = None
+                        loss = None
+                    elif param is not None and (acc is None or loss is None):
+                        print(
+                            '{}: Error: Found parameter redefinition before finding acc and loss'.format(
+                                sys.argv[0]
+                            ),
+                            file=sys.stderr
+                        )
+                    param = match.expand(r'\1').replace('\'', '').replace(': ', '=')
+                    continue
+                # Match accuracy and loss.
+                match = result_reg.match(line)
+                if match is not None:
+                    acc, loss = match.expand(r'\1 \2').split()
+            if None not in (param,acc,loss):
+                results.append((param,acc,loss))
+        # Parse the results.
+        params, accs, losses = zip(*results)
+        assert len(params) == len(accs)
+        assert len(params) == len(losses)
+        accs   = list(map(float, accs))
+        losses = list(map(float, losses))
+        # Save results.
+        with open(os.path.join(LOG_DIR, '{}.list'.format(title)), 'w') as file:
+            for param, acc, loss in zip(params, accs, losses):
+                file.write('{}\t{}\t{}\n'.format(param, acc, loss))
+        # Plot and save accuracies.
+        fig = plt.gcf()
+        #fig.set_size_inches(10, 5)
+        plt.title('Comparison of accuracy for different {}{}'.format(title, 's' if title[-1] != 's' else ''))
+        plt.xlabel('Parameters')
+        plt.ylabel('Accuracy (%)')
+        plt.bar(range(len(accs)), accs, tick_label=params)
+        plt.show()#savefig(os.path.join(LOG_DIR, '{}.acc.jpg'.format(title)))
+        # Plot and save losses.
+        plt.clf()
+        fig = plt.gcf()
+        #fig.set_size_inches(10, 5)
+        plt.title('Comparison of loss for different {}{}'.format(title, 's' if title[-1] != 's' else ''))
+        plt.xlabel('Parameters')
+        plt.ylabel('Loss')
+        plt.bar(range(len(accs)), losses, tick_label=params)
+        plt.show()#savefig(os.path.join(LOG_DIR, '{}.loss.jpg'.format(title)))

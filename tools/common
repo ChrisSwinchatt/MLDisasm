@@ -1,0 +1,41 @@
+#!/bin/bash
+
+# Defines common data for scripts.
+#
+# Pre-condition:
+#  1. $here contains the directory containing the calling script.
+#  2. $model_name contains the name of the model.
+#
+# Post-condition:
+#  1. $python contains the path to Python 3.x.
+#  2. $data_dir contains the path to the data directory.
+#  3. $model_dir contains the path to the model directory.
+#  4. $log_dir contains the path to the log directory.
+#  5. $grid_dir contains the path to the grid directory.
+#  6. $log_path contains the path to the log file.
+#  7. $config_path contains the path to the configuration file.
+#  9. $config_bak contains the path to the backup configuration file.
+#
+# Errors:
+#  * Exits with an error message and $?=1 if Python isn't found.
+
+# Environment.
+python=$(which python3)
+
+[[ "${MLD_PYTHON}" != "" ]] && python="${MLD_PYTHON}"
+
+if [[ ! -x $(which "${python}") ]]; then
+    echo "$0: ${python} does not name an executable file" >&2
+    exit 1
+fi
+
+# Directories.
+data_dir="$(pwd)/data"
+model_dir="${data_dir}/${model_name}"
+log_dir="${model_dir}/logs"
+grid_dir="${model_dir}/grids"
+
+# Files.
+log_path="${data_dir}/mldisasm.log"
+config_path="${model_dir}/config.json"
+config_bak="${config_path}~"

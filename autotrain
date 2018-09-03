@@ -18,24 +18,15 @@ fi
 
 model_name="$1"
 
-data_dir="${here}/data"
-log_path="${data_dir}/mldisasm.log"
-model_dir="${data_dir}/${model_name}"
-log_dir="${model_dir}/logs"
-
-python=$(which python3)
+. "${here}/tools/common"
 
 mkdir -p "${log_dir}"
 
-[[ "x${MLD_PYTHON}" != "x" ]] && python="${MLD_PYTHON}"
-
-if [[ ! -x $(which "${python}") ]]; then
-    echo "$0: Python \"${python}\" is not an executable file in the \$PATH" >&2
-    exit 1
-fi
-
 # Stage 1: Hyperparameter selection. grid_dir contains .json files which contain hyperparameters to tune.
 "${here}/autotune" "${model_name}"
+
+# Stage 1.5: Process results in the background.
+"${here}/tools/prep-results" "${model_name}" &
 
 # Stage 2: Training.
 "${here}/train" "${model_name}"

@@ -156,9 +156,9 @@ def train_epoch(model, batches, epoch, num_epochs, params=None, num_batches=0):
                 y,
                 batch_num,
                 params,
-                num_batches=num_batches,
-                epoch=epoch,
-                num_epochs=num_epochs
+                num_batches = num_batches,
+                epoch       = epoch,
+                num_epochs  = num_epochs
             )
             avg_acc  = _running_average(avg_acc,  acc,  batch_num)
             avg_loss = _running_average(avg_loss, loss, batch_num)
