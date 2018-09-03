@@ -40,4 +40,6 @@ for grid in "${grid_dir}"/*; do
     log_name=$(basename "${grid%.json}")
     log_dest="${log_dir}/${log_name}.log"
     cp "${log_path}" "${log_dest}"
+    # Mark the file as non-executable.
+    chmod -x "${grid}"
 done
