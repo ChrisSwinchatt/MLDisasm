@@ -232,6 +232,24 @@ After training, you can validate the model on unseen data using the following co
 python src/validator.py <model name>
 ```
 
+Valid model names are: att, intel
+
+### Disassemble an example file
+
+The disassembler is currently in alpha as it isn't capable of finding instruction boundaries. Nonetheless, it can be invoked by the following command:
+
+```shell
+./mldisasm <model name> <binary file>
+```
+
+Valid model names are: att, intel
+
+To get a binary file from a program, you can use the OBJCOPY command:
+
+```shell
+objcopy -O binary <input file> <output file>
+```
+
 ### Run unit tests and benchmarks
 
 You can run unit tests using the pre-commit hook:
