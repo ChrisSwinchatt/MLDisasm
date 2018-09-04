@@ -26,7 +26,7 @@ import tensorflow.keras.backend as K
 
 from mldisasm.io.codec        import AsciiCodec, BytesCodec
 from mldisasm.io.file_manager import FileManager
-from mldisasm.util            import log, prof, refresh_graph
+from mldisasm.util            import log, prof
 from mldisasm.util.force_cpu  import force_cpu
 from mldisasm.training        import parameter_grid, kfolds_train
 
@@ -35,7 +35,7 @@ force_cpu()
 
 RANDOM_SEED = 1
 
-def tune_model(config, params, file_mgr, model_name, codecs):
+def tune_model(X, y, params):
     '''
     Train a model with a set of parameters and return the average accuracy and loss during cross-validation.
     '''
@@ -44,16 +44,7 @@ def tune_model(config, params, file_mgr, model_name, codecs):
     np.random.seed(RANDOM_SEED)
     tf.set_random_seed(RANDOM_SEED)
     # Create training set generator and train with kfolds.
-    batches = file_mgr.yield_training(
-        model_name,
-        codecs,
-        params['batch_size'],
-        loop_mode   = True,
-        max_records = config['gs_records']
-    )
-    acc, loss = kfolds_train(batches, params, num_batches=config['gs_records']//params['batch_size'])
-    # Clean up the TF graph.
-    refresh_graph()
+    acc, loss = kfolds_train(X, y, params)
     return acc, loss
 
 def select_params(config, file_mgr, model_name, codecs):
@@ -71,6 +62,7 @@ def select_params(config, file_mgr, model_name, codecs):
     best_acc    = -np.inf
     acc         = 0
     loss        = 0
+    X, y        = file_mgr.load_training(model_name, codecs, max_records=config['gs_records'])
     for grid_params in grid:
         with prof(
             'Grid {}/{}: acc={}%, loss={}', fit_num, num_fits, lambda: 100*acc, lambda: round(loss, 4),
@@ -79,7 +71,7 @@ def select_params(config, file_mgr, model_name, codecs):
         ):
             params = dict(config['model'])
             params.update(grid_params)
-            acc, loss = tune_model(config, params, file_mgr, model_name, codecs)
+            acc, loss = tune_model(X, y, params)
             # Select model by accuracy.
             if acc > best_acc:
                 best_acc = acc

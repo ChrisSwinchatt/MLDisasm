@@ -7,8 +7,6 @@ import os
 import sys
 import traceback as tb
 
-import numpy as np
-
 if __name__ == '__main__':
     print('*** Starting up...')
     # Filter out debug messages from TF.
@@ -20,8 +18,7 @@ import tensorflow.keras.backend as K
 from mldisasm.io.codec        import AsciiCodec, BytesCodec
 from mldisasm.io.file_manager import FileManager
 from mldisasm.model           import Disassembler
-from mldisasm.training        import train_epoch
-from mldisasm.util            import log, prof
+from mldisasm.util            import log
 from mldisasm.util.force_cpu  import force_cpu
 
 force_cpu()
@@ -35,18 +32,13 @@ def train_model(file_mgr, config, codecs, name):
     K.set_learning_phase(1)
     model      = Disassembler(**params)
     num_epochs = params['epochs']
-    acc        = -np.inf
-    loss       = np.inf
-    for epoch in range(1, num_epochs + 1):
-        with prof('Epoch {}/{}: acc={}%, loss={}', epoch, num_epochs + 1, lambda: acc, lambda: loss):
-            acc, loss, model = train_epoch(
-                model,
-                file_mgr.yield_training(name, codecs, params['batch_size'], max_records=config['max_records']),
-                epoch,
-                num_epochs,
-                params,
-                config['max_records']//params['batch_size']
-            )
+    X, y       = file_mgr.load_training(name, codecs, max_records=config['max_records'])
+    model.fit(
+        [X, y],
+        tf.manip.roll(y, 1, 1),
+        epochs          = num_epochs,
+        steps_per_epoch = 1
+    )
     return model
 
 def read_command_line():
