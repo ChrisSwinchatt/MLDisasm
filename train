@@ -2,7 +2,7 @@
 
 here=$(dirname "$0")
 
-. "${here}/common"
+. "${here}/tools/common"
 
 [[ "${MLD_TRACE}" = "1" ]] && PYTHON_ARGS=("-m trace -l")
 

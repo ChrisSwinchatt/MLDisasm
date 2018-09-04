@@ -1,5 +1,5 @@
 {
-    "max_records":200000,
+    "max_records":100,
     "gs_records":1000,
     "model":{
         "metrics":[
@@ -8,79 +8,26 @@
         "x_seq_len":15,
         "y_seq_len":64,
         "mask_value":null,
-        "batch_size":100,
-        "epochs":3,
-        "kfolds":3,
+        "batch_size":50,
+        "epochs":100,
+        "kfolds":10,
         "shuffle":true,
         "input_size":256,
         "hidden_size":256,
         "output_size":128,
         "recurrent_unit":"lstm",
-        "recurrent_layers":1,
+        "encoder_layers":1,
+        "decoder_layers":1,
         "recurrent_activation":"tanh",
         "recurrent_use_bias":true,
         "recurrent_forget_bias":true,
-        "dropout":1,
-        "recurrent_dropout":0.000000001,
+        "dropout":0,
+        "recurrent_dropout":0,
         "dense_activation":"sigmoid",
         "loss":"categorical_crossentropy",
-        "optimizer":"Adagrad",
+        "optimizer":"SGD",
         "opt_params":{
-            "lr":10.0
+            "lr":0.001
         }
     }
-,
-"grid":
-{
-    "batch_size": [25,50,100,250,500,1000]
-}
-,
-"grid":
-{
-    "optimizer": [
-        "Adadelta",
-        "Adagrad",
-        "Adam",
-        "Adamax",
-        "Nadam",
-        "RMSprop",
-        "SGD"
-    ],
-    "opt_params": [
-        {
-            "lr": 10.0
-        },
-        {
-            "lr": 1.0
-        },
-        {
-            "lr": 0.1
-        },
-        {
-            "lr": 0.01
-        },
-        {
-            "lr": 0.001
-        },
-        {
-            "lr": 0.0001
-        },
-        {
-            "lr": 0.00001
-        },
-        {
-            "lr": 0.000001
-        }
-    ]
-}
-,
-"grid":
-{
-    "batch_size": [25,50,100,250,500,1000]
-}
-,
-"grid":
-{
-    "batch_size": [25,50,100,250,500,1000]
-}
 }

@@ -1,4 +1,0 @@
-{
-    "recurrent_layers": [3,2,1],
-    "hidden_size": [64,128,256]
-}

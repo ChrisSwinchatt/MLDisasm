@@ -88,7 +88,7 @@ class RecurrentStack(keras.layers.Layer):
     '''
     A stack of recurrent layers.
     '''
-    def __init__(self, params=None, **kwargs):
+    def __init__(self, params, **kwargs):
         super().__init__()
         # Create a copy of params so we can modify it.
         self.params = params
@@ -130,11 +130,13 @@ class DisassemblyEncoder:
         self.input_shape = (params['x_seq_len'], params['input_size'])
         self.inputs      = keras.layers.Input(shape=self.input_shape)
         # Create the recurrent layer(s).
+        params['recurrent_layers'] = params['encoder_layers']
         self.recurrent = RecurrentStack(
             params,
             return_sequences = False,
             return_state     = True
         )
+        del params['recurrent_layers']
         # Create the output. The output of encoder is the predictions and either one (RNN, GRU) or two (LSTM) internal
         # states. We just want the states to pass to the decoder.
         outputs                  = self.recurrent(self.inputs)
@@ -161,11 +163,13 @@ class DisassemblyDecoder:
         self.input_shape = (params['y_seq_len'], params['output_size'])
         self.inputs      = keras.layers.Input(shape=self.input_shape)
         # Create the hidden layer(s).
+        params['recurrent_layers'] = params['decoder_layers']
         self.recurrent = RecurrentStack(
             params,
             return_sequences = True,
             return_state     = True
         )
+        del params['recurrent_layers']
         # Create the outputs with the hidden state of the encoder as the decoder's initial state.
         outputs    = self.recurrent(self.inputs, initial_state=initial_state)
         outputs, _ = _split_recurrent_states(outputs)

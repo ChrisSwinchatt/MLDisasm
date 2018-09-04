@@ -1,0 +1,5 @@
+{
+    "encoder_layers": [1,2,3],
+    "decoder_layers": [1,2,3],
+    "hidden_size":    [64,128,256]
+}

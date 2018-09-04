@@ -62,62 +62,68 @@ Here is an example configuration file:
 
 ```json
 {
-    // The maximum number of records to use during training.
-    "max_records":          2000000,
-    // The maximum number of records to use during gridsearch.
-    "gs_records":           10000,
-    // The length of a sequence. Sequences
-    "seq_len":              50,
-    // Mask value: input vectors which contain only this value will be skipped.
-    "mask_value":           -1,
-    // Model configuration. Parameters here can be overridden by the "grid" object.
-    "model": {
-        // Whether to use a GRU (true) or LSTM (false) for recurrent units.
-        "gru_mode":         false,
-        // Metrics to measure training progress by. Currently only "accuracy" is supported.
-        "metrics":          ["accuracy"],
-        // How many records to train on at once. Larger values are more efficient (up to a point, dependent on the size
-        // of video memory) but smaller values (again, to a point) may be better for training.
-        "batch_size":       100,
-        // How many training epochs to use. Small values are recommended because the training set can be very large.
-        "epochs":           10,
-        // How many units in each LSTM or GRU layer.
-        "hidden_size":      256,
-        // Dimensionality of the output. Currently ignored -- the value is computed internally.
-        "output_size":      1148,
-        // How many LSTM or GRU layers to use.
-        "lstm_layers":      1,
-        // The LSTM activation function (tanh is recommended).
-        "lstm_activation":  "tanh",
-        // Whether to use bias vectors (recommended).
-        "lstm_use_bias":    true,
-        // Whether to use bias in the LSTM forget gate (recommended).
-        "lstm_forget_bias": true,
-        // Whether to use dropout in the output to prevent overfitting (very, very small values recommended).
-        "lstm_dropout":     0.000001,
-        // Whether to use dropout in the hidden state to prevent overfitting (very, very small values recommended).
-        "lstm_r_dropout":   0,
-        // What activation function to use in the dense layer, which maps from LSTM space to the output space (sigmoid
-        // recommended).
-        "dense_activation": "sigmoid",
-        // What loss function to use (categorical cross-entropy recommended).
-        "loss":             "categorical_crossentropy",
-        // Whether to use a softmax layer (recommended).
-        "use_softmax":      true,
-        // What optimizer to use.
-        "optimizer":        "Adadelta",
-        // Parameters for the optimizer, such as learning rate (lr).
-        "opt_params":{
-            "lr":           1.0
-        },
-        // Whether to use the mask_value.
-        "use_masking":      true
+    // Maximum number of records during training.
+    "max_records":               100000,
+    // Maximum number of records during hyperparameter selection (gridsearch).
+    "gs_records":                10000,
+    // Overrideable model parameters.
+    "model":{
+        // Classifier performance metrics.
+        "metrics":               ["accuracy"],
+        // Input sequence length.
+        "x_seq_len":             15,
+        // Output sequence length.
+        "y_seq_len":             64,
+        // Mask value.
+        "mask_value":            null,
+        // Batch size.
+        "batch_size":            100,
+        // Number of training epochs.
+        "epochs":                100,
+        // Number of cross-validation folds.
+        "kfolds":                10,
+        // Whether to shuffle indices during cross-validation.
+        "shuffle":               true,
+        // Dimensionality of input space.
+        "input_size":            256,
+        // Number of hidden units per recurrent layer.
+        "hidden_size":           256,
+        // Dimensionality of the output space.
+        "output_size":           128,
+        // Type of recurrent unit (lstm, gru or rnn).
+        "recurrent_unit":        "lstm",
+        // Number of recurrent layers in the encoder.
+        "encoder_layers":        1,
+        // Number of recurrent layers in the decoder.
+        "decoder_layers":        1,
+        // Activation function to use in recurrent layers.
+        "recurrent_activation":  "tanh",
+        // Whether to use bias vectors in recurrent units.
+        "recurrent_use_bias":    true,
+        // Whether to use bias in the LSTM forget gate (has no effect if recurrent_unit is not "lstm").
+        "recurrent_forget_bias": true,
+        // Dropout rate between recurrent layers.
+        "dropout":               0,
+        // Dropout rate within recurrent sequences.
+        "recurrent_dropout":     0,
+        // Activation of the dense layer.
+        "dense_activation":     "softmax",
+        // Loss function.
+        "loss":                 "categorical_crossentropy",
+        // Optimizer.
+        "optimizer":            "Adam",
+        // Parameters to the optimizer.
+        "opt_params": {
+            // Learning rate.
+            "lr": 0.001
+        }
     },
-    // Override parameter values above during gridsearch. Values must be arrays. Each combination of the values below
-    // will be searched which is why it's often better to search unrelated parameters separately.
+    // Gridsearch parameter grid (inline). Listed values are combined and each combination overrides values in 'model'
+    // during hyperparameter selection..
     "grid": {
-        "hidden_size": [64,128,256,512],
-        "lstm_layers": [1,2,3]
+        "hidden_size":    [64,128,256,512],
+        "encoder_layers": [1,2,3],
+        "decoder_layers": [1,2,3]
     }
 }
 ```
@@ -128,8 +134,9 @@ Here is an example of an out-of-line grid (see "Select hyperparameters without t
 
 ```json
 {
-    "hidden_size": [64,128,256,512],
-    "lstm_layers": [1,2,3]
+    "hidden_size":    [64,128,256,512],
+    "encoder_layers": [1,2,3],
+    "decoder_layers": [1,2,3]
 }
 ```
 

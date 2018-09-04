@@ -25,9 +25,6 @@ mkdir -p "${log_dir}"
 # Stage 1: Hyperparameter selection. grid_dir contains .json files which contain hyperparameters to tune.
 "${here}/autotune" "${model_name}"
 
-# Stage 1.5: Process results in the background.
-"${here}/tools/prep-results" "${model_name}" &
-
 # Stage 2: Training.
 "${here}/train" "${model_name}"
 log_dest="${log_dir}/training.log"
@@ -37,3 +34,7 @@ cp "${log_path}" "${log_dest}"
 "${python}" "${here}/src/validator.py" "${model_name}"
 log_dest="${log_dir}/validation.log"
 cp "${log_path}" "${log_dest}"
+
+# Stage 3.5: Process results.
+echo "$name: Processing results"
+"${python}" "${here}/tools/prep-results" "${model_name}"

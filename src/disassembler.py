@@ -35,16 +35,13 @@ if __name__ == '__main__':
     input_path = sys.argv[2]
     tf.logging.set_verbosity(tf.logging.INFO)
     # Load files and create codecs.
-    file_mgr   = FileManager()
-    config     = file_mgr.load_config()
-    tokens     = file_mgr.load_tokens()
-    seq_len    = config['seq_len']
-    mask_value = config['mask_value']
-    x_codec    = BytesCodec(seq_len, mask_value)
-    y_codec    = AsciiCodec(seq_len, mask_value, tokens)
-    model      = Disassembler(**config['model']) #file_mgr.load_model(model_name)
-    # pylint: disable=protected-access
-    model.load_weights(file_mgr._qualify_model(model_name))
+    file_mgr = FileManager()
+    config   = file_mgr.load_config(model_name)
+    x_codec  = BytesCodec(config['model']['x_seq_len'], config['model']['mask_value'])
+    y_codec  = AsciiCodec(config['model']['y_seq_len'], config['model']['mask_value'])
+    # Create a new model and load pretrained weights into it.
+    model = Disassembler(**config['model']) #file_mgr.load_model(model_name)
+    model.load_weights(file_mgr.qualify_model(model_name))
     # Process the file in seq_len sized chunks. TODO: Implement sliding window. FIXME: How do we detect instruction
     # boundaries when a block of N bytes could contain anywhere from N/15 to N instructions?
     with tf.Session() as session, open(input_path, 'rb') as file:
@@ -52,7 +49,7 @@ if __name__ == '__main__':
         session.run(tf.global_variables_initializer())
         offset = 0
         while True:
-            buffer = file.read(seq_len)
+            buffer = file.read(config['model']['x_seq_len'])
             if not buffer:
                 break
             encoded = x_codec.encode(buffer)
