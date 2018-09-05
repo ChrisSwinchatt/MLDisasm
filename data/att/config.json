@@ -1,5 +1,5 @@
 {
-    "max_records":100,
+    "max_records":10000,
     "gs_records":1000,
     "model":{
         "metrics":[
@@ -10,7 +10,7 @@
         "mask_value":null,
         "batch_size":50,
         "epochs":100,
-        "kfolds":10,
+        "kfolds":3,
         "shuffle":true,
         "input_size":256,
         "hidden_size":256,
@@ -21,13 +21,10 @@
         "recurrent_activation":"tanh",
         "recurrent_use_bias":true,
         "recurrent_forget_bias":true,
-        "dropout":0,
-        "recurrent_dropout":0,
-        "dense_activation":"sigmoid",
+        "dropout":0.000000001,
+        "recurrent_dropout":0.001,
+        "dense_activation":"softmax",
         "loss":"categorical_crossentropy",
-        "optimizer":"SGD",
-        "opt_params":{
-            "lr":0.001
-        }
+        "optimizer":"Adadelta"
     }
 }

@@ -11,19 +11,6 @@ import sys
 
 import matplotlib.pyplot as plt
 
-# Directory containing log files.
-LOG_DIR = os.path.join(os.getcwd(), 'data', '{0}', 'logs')
-
-# Log filename glob.
-LOG_GLOB = '*.log'
-
-PATTERNS = {
-    'log':    r'.*[0-9]{2}_(.*)\.log',
-    'train':  r'training.log',
-    'param':  r'.*Grid [0-9]+\/[0-9]+\: \{(.*)\}',
-    'result': r'acc=([0-9]+\.[0-9]+)%, loss=([0-9]+\.[0-9]+)'
-}
-
 def process_file(filename, filename_reg, param_reg, result_reg):
     '''
     Process a log file.
@@ -32,6 +19,7 @@ def process_file(filename, filename_reg, param_reg, result_reg):
     title = filename_reg.fullmatch(filename)
     assert title is not None
     title = title.expand(r'\1')
+    print(title)
     results = []
     with open(filename) as file:
         param, acc, loss = None, None, None
@@ -41,23 +29,15 @@ def process_file(filename, filename_reg, param_reg, result_reg):
             # warn the user.
             match = param_reg.match(line)
             if match is not None:
-                if None not in (param,acc,loss):
-                    results.append((param,acc,loss))
-                    acc  = None
-                    loss = None
-                elif param is not None and (acc is None or loss is None):
-                    print(
-                        '{}: Error: Found parameter redefinition before finding acc and loss'.format(
-                            sys.argv[0]
-                        ),
-                        file=sys.stderr
-                    )
                 param = match.expand(r'\1').replace('\'', '').replace(': ', '=')
                 continue
-            # Match accuracy and loss.
+            # Match accuracy and loss pattern.
             match = result_reg.match(line)
             if match is not None:
                 acc, loss = match.expand(r'\1 \2').split()
+                if param is not None:
+                    results.append((param,acc,loss))
+                param, acc, loss = None, None, None
         if None not in (param,acc,loss):
             results.append((param,acc,loss))
     # Parse the results.
@@ -77,13 +57,14 @@ def process_results(title, params, accs, losses):
         for param, acc, loss in zip(params, accs, losses):
             file.write('{}\t{}\t{}\n'.format(param, acc, loss))
     # Plot and save accuracies.
+    plt.clf()
     fig = plt.gcf()
     fig.set_size_inches(10, 5)
     plt.title('Comparison of accuracy for different {}{}'.format(title, 's' if title[-1] != 's' else ''))
     plt.xlabel('Parameters')
     plt.ylabel('Accuracy (%)')
     plt.bar(range(len(accs)), accs, tick_label=params)
-    plt.savefig(os.path.join(LOG_DIR, '{}.acc.jpg'.format(title)))
+    plt.savefig(os.path.join(LOG_DIR, '{}.acc.png'.format(title)))
     # Plot and save losses.
     plt.clf()
     fig = plt.gcf()
@@ -92,9 +73,21 @@ def process_results(title, params, accs, losses):
     plt.xlabel('Parameters')
     plt.ylabel('Loss')
     plt.bar(range(len(accs)), losses, tick_label=params)
-    plt.savefig(os.path.join(LOG_DIR, '{}.loss.jpg'.format(title)))
+    plt.savefig(os.path.join(LOG_DIR, '{}.loss.png'.format(title)))
 
 if __name__ == '__main__':
+    # Directory containing log files.
+    LOG_DIR = os.path.join(os.getcwd(), 'data', '{0}', 'logs')
+    # Log filename glob.
+    LOG_GLOB = '*.log'
+    # Regex patterns.
+    PATTERNS = {
+        'log':    r'.*[0-9]{2}_(.*)\.log',
+        'train':  r'training.log',
+        'param':  r'.*Grid [0-9]+\/[0-9]+\: \{(.*)\}',
+        'result': r'.*acc=([0-9]+\.[0-9]+)%, loss=([0-9]+\.[0-9]+)'
+    }
+    # Setup.
     if len(sys.argv) != 2:
         print(__doc__.format(sys.argv[0]), file=sys.stderr)
         exit(1)
