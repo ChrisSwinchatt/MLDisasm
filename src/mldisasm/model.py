@@ -10,6 +10,7 @@ import inspect
 
 import numpy as np
 
+import tensorflow       as tf
 import tensorflow.keras as keras
 
 from mldisasm.constants import START_TOKEN, STOP_TOKEN
@@ -111,14 +112,18 @@ class RecurrentStack(keras.layers.Layer):
     def compute_output_shape(self, input_shape):
         return self.layers[-1].compute_output_shape(input_shape)
 
-    def call(self, X, *args, initial_state=None, **kwargs):
+    def call(self, X, **kwargs):
         '''
         Compute the forwards pass.
         '''
-        # Pass initial_state only to the first layer.
-        X = self.layers[0](X, *args, initial_state=initial_state, **kwargs)
+        X = tf.convert_to_tensor(X, dtype=tf.float32)
+        X = self.layers[0](X, **kwargs)
+        if 'initial_state' in kwargs:
+            del kwargs['initial_state'] # Pass initial_state only to the first layer.
         for layer in self.layers[1:]:
-            X = layer(X, *args, **kwargs)
+            if isinstance(X, tuple):
+                X = X[0]
+            X = layer(X, **kwargs)
         return X
 
 class DisassemblyEncoder:
@@ -139,20 +144,20 @@ class DisassemblyEncoder:
         del params['recurrent_layers']
         # Create the output. The output of encoder is the predictions and either one (RNN, GRU) or two (LSTM) internal
         # states. We just want the states to pass to the decoder.
-        outputs                  = self.recurrent(self.inputs)
+        outputs = self.recurrent(self.inputs)
         self.outputs, self.state = _split_recurrent_states(outputs)
         assert self.state is not None
         # Create the model.
         self.model = keras.Model(self.inputs, self.state)
 
-    def call(self, *args, **kwargs):
+    def call(self, X, **kwargs):
         '''
         Forwards pass. See `keras.Model.call`
         '''
-        return self.model(*args, **kwargs)
+        return self.model(X, **kwargs)
 
-    def __call__(self, *args, **kwargs):
-        return self.call(*args, **kwargs)
+    def __call__(self, X, **kwargs):
+        return self.call(X, **kwargs)
 
 class DisassemblyDecoder:
     '''
@@ -191,14 +196,14 @@ class DisassemblyDecoder:
             [inf_outputs] + inf_states
         )
 
-    def call(self, *args, **kwargs):
+    def call(self, X, **kwargs):
         '''
         Forwards pass. See `keras.Model.call`
         '''
-        return self.model(*args, **kwargs)
+        return self.model(X, **kwargs)
 
-    def __call__(self, *args, **kwargs):
-        return self.call(*args, **kwargs)
+    def __call__(self, X, **kwargs):
+        return self.call(X, **kwargs)
 
 class Disassembler(keras.Model):
     '''
@@ -254,43 +259,46 @@ class Disassembler(keras.Model):
         self.decoder = decoder
         self._compile()
 
-    def call(self, *args, **kwargs):
+    def call(self, X, **kwargs):
         '''
         Forwards pass. See `keras.Model.call`
         '''
         if kwargs.get('training', False):
-            return super().call(*args, **kwargs)
-        return self.infer(*args, **kwargs)
+            return super().call(X, **kwargs)
+        return self.infer(X, **kwargs)
 
-    def infer(self, *args, **kwargs):
+    def infer(self, X, **kwargs):
         '''
         Decode an input sequence.
         :param args: Arguments to predict().
         :param kwargs: Keyword arguments to predict().
         :returns: The decoded string.
         '''
+        # Promote to float32.
+        X = tf.cast(X, tf.float32)
         # Get the encoded vector.
-        states = self.encoder(*args, **kwargs)
+        states = self.encoder(X, **kwargs)
         # Create the target sequence with the start token.
-        y = np.zeros((1, 1, self.params['y_seq_len']))
+        y = np.zeros((1, self.params['y_seq_len'], self.params['output_size']), dtype=np.float32)
         y[0, 0, ord(START_TOKEN)] = 1
+        y = tf.Variable(y)
         # Decode the sequence(s) in a loop.
-        stop   = False
         result = ''
-        while not stop:
+        while True:
             # Decoded sequence.
             outputs = self.decoder([y] + states)
-            tokens  = outputs[0]
-            states  = outputs[1:]
+            tokens, states = _split_recurrent_states(outputs)
             # Store the token. Set 'stop' flag if the stop token (LF) was generated.
-            index = np.argmax(tokens[0, -1, :])
-            token = chr(index)
+            index   = np.argmax(tokens[0, -1, :])
+            token   = chr(index)
             result += token
-            if token == STOP_TOKEN or len(result) >= self.params['y_seq_len']:
-                stop = True
             # Update the target sequence.
-            y = np.zeros((1, 1, self.params['y_seq_len']))
+            y = np.zeros((1, self.params['y_seq_len'], self.params['output_size']), dtype=np.float32)
             y[0, 0, index] = 1
+            y = tf.Variable(y)
+            # Break on stop token or when the maximum string length is exceeded.
+            if token == STOP_TOKEN or len(result) >= self.params['y_seq_len']:
+                break
         return result
 
     def _compile(self):

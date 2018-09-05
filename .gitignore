@@ -3,8 +3,8 @@
 __pycache__/
 *.pyc
 *~
-*.csv
 *.list
 *.log
-*.h5
 *.bin
+data/tb
+*.tb

@@ -13,7 +13,7 @@ import tensorflow.keras.backend as K
 
 from .          import log
 from .prof      import *
-from .force_cpu import force_cpu
+from .force_cpu import FORCING_CPU, force_cpu
 
 def refresh_graph(model=None, build_fn=None, args=None, **kwargs):
     '''
@@ -55,8 +55,11 @@ def refresh_graph(model=None, build_fn=None, args=None, **kwargs):
             del model
         # Clear the graph and collect freed memory.
         K.clear_session()
-        force_cpu()
         gc.collect()
+        # If previous session was using CPU, force CPU in the new session.
+        print('Force CPU:', FORCING_CPU)
+        if FORCING_CPU:
+            force_cpu()
         # Rebuild model and restore its weights.
         if tmp_path is not None:
             if args is None:

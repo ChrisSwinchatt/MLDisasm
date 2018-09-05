@@ -4,12 +4,15 @@
 MLDisasm basic training stuff.
 '''
 
+import random
+
 import numpy as np
 
-import tensorflow as tf
+import tensorflow               as tf
+import tensorflow.keras.backend as K
 
 from mldisasm.model import Disassembler
-from mldisasm.util  import prof
+from mldisasm.util  import log, prof
 
 def grids(params):
     '''
@@ -68,19 +71,53 @@ def cv_split(X, y, train, test):
     '''
     return tf.gather(X, train), tf.gather(y, train), tf.gather(X, test), tf.gather(y, test)
 
-def _extract_metrics(model, metrics):
-    if model.metrics_names == ['acc','loss']:
-        acc, loss = metrics
-    elif model.metrics_names == ['loss','acc']:
-        loss, acc = metrics
-    else:
-        raise ValueError('Unrecognised metrics names: {}'.format(','.join(model.metrics_names)))
-    return acc, loss
-
-def _running_average(value, sample, count):
-    return value*(count - 1)/count + sample/count
+def train_model(X, y, params, train=None, test=None, retrain=None):
+    '''
+    Train a model.
+    :param X: The training inputs.
+    :param y: The training targets.
+    :param train: If given, a list of indices to be used for training.
+    :param test: If given, a list of indices to be used for cross validating.
+    :param retrain: A model to retrain or None to train a new model..
+    :returns: A tuple of (model,acc,loss), where acc and loss are the *final* training accuracy and loss (if train and
+    test are None) or the *final* cross-validation accuracy and loss (if neither train nor test is None).
+    :raises ValueError: If one of train and test is None, but not both of them.
+    '''
+    # Get validation data if we're cross-validating.
+    validation_data = None
+    if train is not None and test is not None:
+        X, y, X_test, y_test = cv_split(X, y, train, test)
+        validation_data      = [[X_test,y_test],tf.manip.roll(y_test, 1, 1)]
+    elif train is None != test is None:
+        raise ValueError('Either none or both of train and test should be None')
+    # Retrain existing model or create a new one.
+    model = retrain
+    if model is None:
+        model = Disassembler(**params)
+    # Train the model.
+    log.info('Training model with parameters {}'.format(params))
+    K.set_learning_phase(1)
+    num_epochs = params['epochs']
+    history    = model.fit(
+        [X, y],
+        tf.manip.roll(y, 1, 1),
+        epochs           = num_epochs,
+        steps_per_epoch  = 1,
+        validation_data  = validation_data,
+        validation_steps = 0 if validation_data is None else 1
+        #callbacks        = [keras.callbacks.TensorBoard(log_dir=os.path.join(FileManager.default_data_dir, 'tb'))]
+    )
+    # Extract metrics.
+    acc, loss = 'acc', 'loss'
+    if validation_data is not None:
+        acc  = 'val_acc'
+        loss = 'val_loss'
+    return model, history.history[acc][-1], history.history[loss][-1]
 
 def _train_fold(X, y, params, train, test, fold_num):
+    random.seed(1)
+    np.random.seed(1)
+    tf.set_random_seed(1)
     acc = -np.inf
     loss = np.inf
     with prof(
@@ -89,25 +126,17 @@ def _train_fold(X, y, params, train, test, fold_num):
         start_msg='Fold {}/{}'.format(fold_num, params['kfolds'])
     ):
         # Train and cross-validate.
-        X_train, y_train, X_test, y_test = cv_split(X, y, train, test)
-        model   = Disassembler(**params)
-        history = model.fit(
-            [X_train,y_train],
-            tf.manip.roll(y_train, 1, 1),
-            validation_data  = [[X_test,y_test], tf.manip.roll(y_test, 1, 1)],
-            steps_per_epoch  = 1,
-            validation_steps = 1,
-            epochs           = params['epochs']
-        )
-        acc  = history.history['val_acc'][-1]
-        loss = history.history['val_loss'][-1]
+        _, acc, loss = train_model(X, y, params, train, test)
         return acc, loss
+
+def _running_average(value, sample, count):
+    return value*(count - 1)/count + sample/count
 
 def kfolds_train(X, y, params):
     '''
     Perform training with k-folds cross-validation.
     :param X: The training inputs.
-    :param y: The training outputs.
+    :param y: The training targets.
     :param params: The model parameters for creating a model.
     :param num_batches: The maximum number of batches or None.
     :returns: A tuple of the average accuracy and loss over all folds.

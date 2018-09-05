@@ -10,19 +10,7 @@ import re
 import sys
 
 import matplotlib.pyplot as plt
-
-# Directory containing log files.
-LOG_DIR = os.path.join(os.getcwd(), 'data', '{0}', 'logs')
-
-# Log filename glob.
-LOG_GLOB = '*.log'
-
-PATTERNS = {
-    'log':    r'.*[0-9]{2}_(.*)\.log',
-    'train':  r'training.log',
-    'param':  r'.*Grid [0-9]+\/[0-9]+\: \{(.*)\}',
-    'result': r'acc=([0-9]+\.[0-9]+)%, loss=([0-9]+\.[0-9]+)'
-}
+from   matplotlib import rcParams
 
 def process_file(filename, filename_reg, param_reg, result_reg):
     '''
@@ -32,6 +20,7 @@ def process_file(filename, filename_reg, param_reg, result_reg):
     title = filename_reg.fullmatch(filename)
     assert title is not None
     title = title.expand(r'\1')
+    print(title)
     results = []
     with open(filename) as file:
         param, acc, loss = None, None, None
@@ -41,23 +30,23 @@ def process_file(filename, filename_reg, param_reg, result_reg):
             # warn the user.
             match = param_reg.match(line)
             if match is not None:
-                if None not in (param,acc,loss):
-                    results.append((param,acc,loss))
-                    acc  = None
-                    loss = None
-                elif param is not None and (acc is None or loss is None):
-                    print(
-                        '{}: Error: Found parameter redefinition before finding acc and loss'.format(
-                            sys.argv[0]
-                        ),
-                        file=sys.stderr
-                    )
-                param = match.expand(r'\1').replace('\'', '').replace(': ', '=')
+                param = match.expand(r'\1')
+                # pylint: disable=W0123
+                param = list(eval(param).values()) # Don't warn about use of eval.
+                for i in range(len(param)):
+                    if isinstance(param[i], dict):
+                        param[i] = ', '.join(map(str, param[i].values()))
+                    else:
+                        param[i] = str(param[i])
+                param = ', '.join(reversed(param)) # Reverse order of opt_params/optimizer.
                 continue
-            # Match accuracy and loss.
+            # Match accuracy and loss pattern.
             match = result_reg.match(line)
             if match is not None:
                 acc, loss = match.expand(r'\1 \2').split()
+                if param is not None:
+                    results.append((param,acc,loss))
+                param, acc, loss = None, None, None
         if None not in (param,acc,loss):
             results.append((param,acc,loss))
     # Parse the results.
@@ -72,29 +61,51 @@ def process_results(title, params, accs, losses):
     '''
     Process log results to .list file and create plots.
     '''
+    rcParams.update({'figure.autolayout': True})
+    RATIO  = 16/9
+    WIDTH  = 35
+    HEIGHT = WIDTH/RATIO
     # Save results.
     with open(os.path.join(LOG_DIR, '{}.list'.format(title)), 'w') as file:
         for param, acc, loss in zip(params, accs, losses):
             file.write('{}\t{}\t{}\n'.format(param, acc, loss))
     # Plot and save accuracies.
+    xs = range(len(accs))
+    plt.clf()
     fig = plt.gcf()
-    fig.set_size_inches(10, 5)
+    plt.tight_layout()
+    #fig.set_size_inches(WIDTH, HEIGHT)
     plt.title('Comparison of accuracy for different {}{}'.format(title, 's' if title[-1] != 's' else ''))
     plt.xlabel('Parameters')
     plt.ylabel('Accuracy (%)')
-    plt.bar(range(len(accs)), accs, tick_label=params)
-    plt.savefig(os.path.join(LOG_DIR, '{}.acc.jpg'.format(title)))
+    plt.xticks(xs, params, rotation='vertical')
+    plt.bar(xs, accs)
+    plt.savefig(os.path.join(LOG_DIR, '{}.acc.png'.format(title)))
     # Plot and save losses.
     plt.clf()
     fig = plt.gcf()
-    fig.set_size_inches(10, 5)
+    plt.tight_layout()
+    #fig.set_size_inches(WIDTH, HEIGHT)
     plt.title('Comparison of loss for different {}{}'.format(title, 's' if title[-1] != 's' else ''))
     plt.xlabel('Parameters')
     plt.ylabel('Loss')
-    plt.bar(range(len(accs)), losses, tick_label=params)
-    plt.savefig(os.path.join(LOG_DIR, '{}.loss.jpg'.format(title)))
+    plt.xticks(xs, params, rotation='vertical')
+    plt.bar(xs, losses)
+    plt.savefig(os.path.join(LOG_DIR, '{}.loss.png'.format(title)))
 
 if __name__ == '__main__':
+    # Directory containing log files.
+    LOG_DIR = os.path.join(os.getcwd(), 'data', '{0}', 'logs')
+    # Log filename glob.
+    LOG_GLOB = '*.log'
+    # Regex patterns.
+    PATTERNS = {
+        'log':    r'.*[0-9]{2}_(.*)\.log',
+        'train':  r'training.log',
+        'param':  r'.*Grid [0-9]+\/[0-9]+\: (\{.*\})',
+        'result': r'.*acc=([0-9]+\.[0-9]+)%, loss=([0-9]+\.[0-9]+)'
+    }
+    # Setup.
     if len(sys.argv) != 2:
         print(__doc__.format(sys.argv[0]), file=sys.stderr)
         exit(1)

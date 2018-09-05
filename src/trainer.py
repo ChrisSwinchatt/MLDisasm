@@ -17,28 +17,20 @@ import tensorflow.keras.backend as K
 
 from mldisasm.io.codec        import AsciiCodec, BytesCodec
 from mldisasm.io.file_manager import FileManager
-from mldisasm.model           import Disassembler
-from mldisasm.util            import log
-from mldisasm.util.force_cpu  import force_cpu
+from mldisasm.training        import train_model
+from mldisasm.util            import log, refresh_graph, force_cpu, prof
 
 force_cpu()
 
-def train_model(file_mgr, config, codecs, name):
+def batch_train(config, params, file_mgr, model_name, codecs):
     '''
-    Train a model.
+    Train a model in batches.
     '''
-    params = config['model']
-    log.info('Training model with parameters {}'.format(params))
-    K.set_learning_phase(1)
-    model      = Disassembler(**params)
-    num_epochs = params['epochs']
-    X, y       = file_mgr.load_training(name, codecs, max_records=config['max_records'])
-    model.fit(
-        [X, y],
-        tf.manip.roll(y, 1, 1),
-        epochs          = num_epochs,
-        steps_per_epoch = 1
-    )
+    model = None
+    for X, y in file_mgr.yield_training(model_name, codecs, batch_size=config['max_records']//10, max_records=config['max_records']):
+        with prof('Trained batch'):
+            model, _, _ = train_model(X, y, params, retrain=model)
+        #model = refresh_graph(model, Disassembler, **params)
     return model
 
 def read_command_line():
@@ -61,10 +53,11 @@ if __name__ == '__main__':
     try:
         # Load configuration,
         config  = file_mgr.load_config(model_name)
-        x_codec = BytesCodec(config['model']['x_seq_len'], config['model']['mask_value'])
-        y_codec = AsciiCodec(config['model']['y_seq_len'], config['model']['mask_value'])
-        # Train model on whole dataset.
-        model = train_model(file_mgr, config, (x_codec,y_codec), model_name)
+        params  = config['model']
+        x_codec = BytesCodec(params['x_seq_len'], params['mask_value'])
+        y_codec = AsciiCodec(params['y_seq_len'], params['mask_value'])
+        # Train model on whole dataset and save weights.
+        model = batch_train(config, params, file_mgr, model_name, (x_codec,y_codec))
         model.save_weights(file_mgr.qualify_model(model_name))
     except Exception as e:
         log.debug('====================[ UNCAUGHT EXCEPTION ]====================')

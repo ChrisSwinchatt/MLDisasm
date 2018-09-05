@@ -249,7 +249,7 @@ class FileManager:
             x_codec, y_codec = codecs
             for line in file:
                 opcode, disasm = line.split('|')
-                yield x_codec.encode(opcode), y_codec.encode(disasm)
+                yield x_codec.encode(opcode), disasm
 
     ############################################################################
     # CONSTANTS                                                                #

@@ -44,31 +44,28 @@ if __name__ == '__main__':
     sample = 0
     losses = [None]*config['max_records']
     accs   = [None]*config['max_records']
-    for X, y_true in file_mgr.yield_validation(model_name, y_codec):
-        X      = np.asarray([X])
-        y_true = np.asarray([y_true])
+    for X, y_true in file_mgr.yield_validation(model_name, (x_codec,y_codec)):
+        X      = tf.expand_dims(X,      0)
+        y_true = tf.expand_dims(y_true, 0)
         # Compute predictions and loss.
-        y_pred  = model.predict(X)
-        metrics = model.test_on_batch(X, y_true)
-        if model.metrics_names == ['acc','loss']:
-            acc, loss = metrics
-        elif model.metrics_names == ['loss','acc']:
-            loss, acc = metrics
-        else:
-            raise ValueError('Unrecognised metrics names: {}'.format(','.join(model.metrics_names)))
-        accs[sample]   = acc
-        losses[sample] = loss
+        y_pred  = model.infer(X)
+        #metrics = model.test_on_batch(X, y_true)
+        #if model.metrics_names == ['acc','loss']:
+        #    acc, loss = metrics
+        #elif model.metrics_names == ['loss','acc']:
+        #    loss, acc = metrics
+        #else:
+        #    raise ValueError('Unrecognised metrics names: {}'.format(','.join(model.metrics_names)))
+        #accs[sample]   = acc
+        #losses[sample] = loss
         sample += 1
-        # Decode and print results.
-        #print('y_true =', y_true, '; y_pred =', y_pred)
-        y_true = y_codec.decode(y_true)[0]
-        y_pred = y_codec.decode(y_pred)[0]
-        print('Sample {}: loss={}, avg_loss={}, acc={}%, avg_acc={}%, y_pred="{}", y_true="{}"'.format(
+        # Print results.
+        print('Sample {}: y_pred="{}", y_true="{}"'.format(
             sample,
-            loss,
-            np.mean(losses[:sample]),
-            acc,
-            np.mean(accs[:sample]),
+        #    loss,
+        #    np.mean(losses[:sample]),
+        #    acc,
+        #    np.mean(accs[:sample]),
             y_pred,
             y_true
         ))
