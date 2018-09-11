@@ -60,7 +60,7 @@ Here is an example configuration file:
 
 `data/config.json`
 
-```json
+```javascript
 {
     // Maximum number of records during training.
     "max_records":               100000,
