@@ -1,5 +1,20 @@
 #!/usr/bin/env python3
 
+# Copyright (C) 2018,2021 Chris Swinchatt
+# 
+# MLDisasm is free software: you can redistribute it and/or modify it
+# under the terms of the GNU Affero General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or (at your
+# option) any later version.
+# 
+# MLDisasm is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+# 
+# You should have received a copy of the GNU Affero General Public License
+# along with MLDisasm.  If not, see <http://www.gnu.org/licenses/>.
+
 '''Usage: {0} <model>
 '''
 
@@ -24,7 +39,7 @@ from mldisasm.util            import log, prof, force_cpu
 from mldisasm.training        import parameter_grid, kfolds_train
 
 # Force TF to use the CPU.
-force_cpu()
+#force_cpu()
 
 def tune_model(queue, config, params, file_mgr, model_name, codecs):
     '''
