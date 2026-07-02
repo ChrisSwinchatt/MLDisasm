@@ -1,166 +1,109 @@
 #!/usr/bin/env python3
 
 # Copyright (C) 2018,2021 Chris Swinchatt
-# 
+#
 # MLDisasm is free software: you can redistribute it and/or modify it
 # under the terms of the GNU Affero General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or (at your
 # option) any later version.
-# 
+#
 # MLDisasm is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU Affero General Public License for more details.
-# 
+#
 # You should have received a copy of the GNU Affero General Public License
 # along with MLDisasm.  If not, see <http://www.gnu.org/licenses/>.
 
-'''
-MLDisasm encoding and decoding.
-'''
-
-from abc import ABCMeta, abstractmethod
+"""
+MLDisasm encoding and decoding with tokenization.
+"""
 
 import numpy as np
-
 import tensorflow as tf
-from tensorflow import keras
 
-from mldisasm.constants import ASCII_MAX, BYTE_MAX, BYTEORDER, START_TOKEN, STOP_TOKEN
-from mldisasm.util      import log
+from mldisasm.constants import ASCII_MAX, START_TOKEN, STOP_TOKEN
 
-# Maximum value of a byte.
-BYTE_MAX  = 0xFF
+# Vocabulary size for assembly text.
+ASSEMBLY_VOCAB_SIZE = ASCII_MAX + 4  # printable ASCII + PAD, START, END, UNK
 
-class Codec(metaclass=ABCMeta):
-    '''
-    Coder/decoder.
-    '''
-    @abstractmethod
-    def encode(self, seq):
-        '''
-        Encode a sequence. Sequence will be padded to seq_len if necessary.
-        '''
-        raise NotImplementedError
+# Special token indices.
+PAD_IDX   = 0
+START_IDX = 1
+END_IDX   = 2
+UNK_IDX   = 3
 
-    @abstractmethod
-    def decode(self, tensor):
-        '''
-        Decode a sequence of length 'seq_len'.
-        '''
-        raise NotImplementedError
 
-class AsciiCodec(Codec):
-    '''
-    Encode ASCII as one-hot vectors, or decode one-hot vectors into ASCII.
-    '''
-    def __init__(self, seq_len, mask_value):
-        self._seq_len    = seq_len
-        self._mask_value = mask_value
+class ByteIndexer:
+    """Maps raw bytes to integer indices for embedding lookup."""
 
-    def encode(self, seq, as_tensor=True):
-        '''
-        Encodes the contents of an ASCII string as a one-hot matrix.
-        :param seq: The ASCII string.
-        :param as_tensor: Whether to encode as a tensor or a list.
-        :returns: A one-hot encoded matrix representing the ASCII string.
-        '''
-        # Create indices and insert start and end tokens if not present.
-        indices = list(map(ord, seq))
-        if seq[0] != START_TOKEN:
-            indices.insert(0, ord(START_TOKEN))
-        if seq[-1] != STOP_TOKEN:
-            indices.append(ord(STOP_TOKEN))
-        # Convert to onehot and pad to seq_len.
-        onehot = list(keras.utils.to_categorical(indices, num_classes=ASCII_MAX + 1))
-        while len(onehot) < self._seq_len:
-            onehot.append([0]*len(onehot[0]))
-        onehot = np.asarray(onehot, dtype=np.int32)
-        # Convert to tensor and/or return.
-        if as_tensor:
-            return tf.convert_to_tensor(onehot, dtype=tf.int32)
-        return onehot
-
-    def decode(self, onehot):
-        '''
-        Decode a tensor of token indices into an ASCII string tensor.
-        :param onehot: A list of one-hot vectors encoding ASCII characters.
-        :returns: The decoded string if onehot is a 2D matrix, or a list of such strings if onehot is 3D.
-        '''
-        # Check type and convert into NumPy array if needed.
-        if isinstance(onehot, tf.Tensor):
-            onehot = onehot.numpy()
-        elif isinstance(onehot, list):
-            onehot = np.asarray(onehot)
-        elif not isinstance(onehot, np.ndarray):
-            raise TypeError('Expected Tensor or ndarray, not {}'.format(type(onehot).__name__))
-        # Fail if dimensionality is less than 2.
-        if len(onehot.shape) < 2:
-            raise ValueError('Expected at least two dimensions, got {}'.format(len(onehot.shape)))
-        # Map if dimensionality is greater than 2.
-        if len(onehot.shape) > 2:
-            return list(map(self.decode, onehot))
-        # Decode into a string, filtering out one-hot vectors whose elements are all 0.
-        return ''.join(map(
-            lambda oh: chr(np.argmax(oh)),
-            filter(
-                lambda oh: np.max(oh) > 0,
-                onehot
-            )
-        ))
-
-class BytesCodec(Codec):
-    '''
-    Encodes bytes to one-hot, or decodes one hot into bytes.
-    '''
-    def __init__(self, seq_len, mask_value):
-        '''
-        Initialise BytesCodec.
-        :param seq_len: The sequence length.
-        '''
-        self._seq_len    = seq_len
-        self._mask_value = mask_value
+    def __init__(self, seq_len):
+        self.seq_len = seq_len
 
     def encode(self, bs, as_tensor=True):
-        '''
-        Encode a bytes to one-hot.
-        :param bs: Either a bytes object or a string of hex-encoded bytes.
-        :param as_tensor: Whether to return a tensor (True) or a list (False).
-        :returns: A matrix of the one-hot encoded bytes.
-        '''
+        """Convert bytes to padded integer indices (0-255, 0 for padding)."""
         if isinstance(bs, str):
-            # Convert to bytes from hex string.
-            bs = int(bs, 16).to_bytes(
-                len(bs)//2, # Every two chars in hexadecimal is one byte.
-                BYTEORDER
-            )
-        if not isinstance(bs, bytes):
-            raise TypeError('Expected bytes, not {}'.format(type(bs).__name__))
-        # Convert bytes into integers.
-        indices = list(bs)
-        if len(indices) > self._seq_len:
-            log.warning('Expected {} elements or fewer, got {}'.format(self._seq_len, len(indices)))
-        # Encode as one-hot and pad to seq_len.
-        onehot = list(keras.utils.to_categorical(indices, num_classes=BYTE_MAX + 1))
-        while len(onehot) < self._seq_len:
-            onehot.append([0]*len(onehot[0]))
-        onehot = np.asarray(onehot, dtype=np.int32)
+            bs = bytes.fromhex(bs)
+        if not isinstance(bs, (bytes, bytearray)):
+            raise TypeError(f'Expected bytes, got {type(bs).__name__}')
+        indices = list(bs)[:self.seq_len]
+        pad_len = self.seq_len - len(indices)
+        indices = indices + [0] * pad_len
+        result = np.array(indices, dtype=np.int32)
         if as_tensor:
-            return tf.convert_to_tensor(onehot, dtype=tf.int32)
-        return onehot
+            return tf.convert_to_tensor(result, dtype=tf.int32)
+        return result
 
     def decode(self, tensor):
-        '''
-        Decode a one-hot tensor into a bytes object.
-        '''
-        if not isinstance(tensor, tf.Tensor):
-            raise TypeError('Expected Tensor, not {}'.format(type(tensor).__name__))
-        # Compute the argmax of each one-hot vector, filtering out those whose elements are all zero.
-        indices = map(
-            np.argmax,
-            filter(
-                lambda oh: np.max(oh) > 0,
-                tensor.numpy()
-            )
+        """Decode integer indices back to bytes, skipping padding."""
+        if isinstance(tensor, tf.Tensor):
+            tensor = tensor.numpy()
+        return bytes(b for b in tensor if b != 0)
+
+
+class AssemblyTokenizer:
+    """Character-level tokenizer for assembly text."""
+
+    def __init__(self, seq_len):
+        self.seq_len = seq_len
+        # Build char-to-index mapping.
+        self._char_to_idx = {chr(i): i + 4 for i in range(ASCII_MAX + 1)}
+        # Overwrite with special characters
+        self._char_to_idx['\t'] = START_IDX
+        self._char_to_idx['\n'] = END_IDX
+        self._idx_to_char = {v: k for k, v in self._char_to_idx.items()}
+
+    @property
+    def vocab_size(self):
+        return ASSEMBLY_VOCAB_SIZE
+
+    def encode(self, text, as_tensor=True):
+        """Convert assembly text to padded integer indices."""
+        if not isinstance(text, str):
+            raise TypeError(f'Expected str, got {type(text).__name__}')
+        # Add start/end tokens if not present.
+        if not text.startswith(START_TOKEN):
+            text = START_TOKEN + text
+        if not text.endswith(STOP_TOKEN):
+            text = text + STOP_TOKEN
+        # Convert to indices.
+        indices = [self._char_to_idx.get(c, UNK_IDX) for c in text]
+        indices = indices[:self.seq_len]
+        pad_len = self.seq_len - len(indices)
+        indices = indices + [PAD_IDX] * pad_len
+        result = np.array(indices, dtype=np.int32)
+        if as_tensor:
+            return tf.convert_to_tensor(result, dtype=tf.int32)
+        return result
+
+    def decode(self, indices):
+        """Convert integer indices back to assembly text."""
+        if isinstance(indices, tf.Tensor):
+            indices = indices.numpy()
+        if indices.ndim > 1:
+            return [self.decode(row) for row in indices]
+        return ''.join(
+            self._idx_to_char.get(int(i), '?')
+            for i in indices
+            if i not in (PAD_IDX,)
         )
-        return bytes(indices)

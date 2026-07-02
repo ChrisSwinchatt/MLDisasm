@@ -25,7 +25,7 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '1'
 
 def disassemble():
     """Disassemble a binary file."""
-    from mldisasm.io.codec import AsciiCodec, BytesCodec
+    from mldisasm.io.codec import AssemblyTokenizer, ByteIndexer
     from mldisasm.io.file_manager import FileManager
     from mldisasm.model import Disassembler
 
@@ -37,8 +37,8 @@ def disassemble():
 
     file_mgr = FileManager()
     config = file_mgr.load_config(model_name)
-    x_codec = BytesCodec(config['model']['x_seq_len'], config['model']['mask_value'])
-    y_codec = AsciiCodec(config['model']['y_seq_len'], config['model']['mask_value'])
+    x_codec = ByteIndexer(config['model']['x_seq_len'])
+    y_codec = AssemblyTokenizer(config['model']['y_seq_len'])
 
     model = Disassembler(**config['model'])
     model.load_weights(file_mgr.qualify_model(model_name))
@@ -50,8 +50,7 @@ def disassemble():
             if not buf:
                 break
             encoded = x_codec.encode(buf)
-            pred = model.predict(tf.convert_to_tensor([encoded]))
-            decoded = y_codec.decode(pred)
+            decoded = model.infer(tf.convert_to_tensor([encoded]))
             print(f'0x{offset:08x}:\t{buf.hex()}\t{decoded}')
             offset += len(buf)
 
@@ -59,7 +58,7 @@ def disassemble():
 def train():
     """Train a model."""
     import tensorflow as tf
-    from mldisasm.io.codec import AsciiCodec, BytesCodec
+    from mldisasm.io.codec import AssemblyTokenizer, ByteIndexer
     from mldisasm.io.file_manager import FileManager
     from mldisasm.model import Disassembler
     from mldisasm.training import train_model
@@ -76,8 +75,8 @@ def train():
     try:
         config = file_mgr.load_config(model_name)
         params = config['model']
-        x_codec = BytesCodec(params['x_seq_len'], params['mask_value'])
-        y_codec = AsciiCodec(params['y_seq_len'], params['mask_value'])
+        x_codec = ByteIndexer(params['x_seq_len'])
+        y_codec = AssemblyTokenizer(params['y_seq_len'])
 
         model = None
         for X, y in file_mgr.yield_training(
@@ -105,7 +104,7 @@ def tune():
 
     import numpy as np
 
-    from mldisasm.io.codec import AsciiCodec, BytesCodec
+    from mldisasm.io.codec import AssemblyTokenizer, ByteIndexer
     from mldisasm.io.file_manager import FileManager
     from mldisasm.training import parameter_grid, kfolds_train
     from mldisasm.util import log, prof
@@ -120,8 +119,8 @@ def tune():
 
     try:
         config = file_mgr.load_config(model_name)
-        x_codec = BytesCodec(config['model']['x_seq_len'], config['model']['mask_value'])
-        y_codec = AsciiCodec(config['model']['y_seq_len'], config['model']['mask_value'])
+        x_codec = ByteIndexer(config['model']['x_seq_len'])
+        y_codec = AssemblyTokenizer(config['model']['y_seq_len'])
 
         log.info('Selecting hyperparameters')
         grid = parameter_grid(config['grid'])
@@ -186,7 +185,7 @@ def validate():
     import numpy as np
     import tensorflow as tf
 
-    from mldisasm.io.codec import AsciiCodec, BytesCodec
+    from mldisasm.io.codec import AssemblyTokenizer, ByteIndexer
     from mldisasm.io.file_manager import FileManager
     from mldisasm.model import Disassembler
 
@@ -197,8 +196,8 @@ def validate():
 
     file_mgr = FileManager()
     config = file_mgr.load_config(model_name)
-    x_codec = BytesCodec(config['model']['x_seq_len'], config['model']['mask_value'])
-    y_codec = AsciiCodec(config['model']['y_seq_len'], config['model']['mask_value'])
+    x_codec = ByteIndexer(config['model']['x_seq_len'])
+    y_codec = AssemblyTokenizer(config['model']['y_seq_len'])
 
     model = Disassembler(**config['model'])
     model.load_weights(file_mgr.qualify_model(model_name))

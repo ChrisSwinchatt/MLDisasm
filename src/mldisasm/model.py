@@ -1,345 +1,243 @@
 #!/usr/bin/env python3
 
 # Copyright (C) 2018,2021 Chris Swinchatt
-# 
+#
 # MLDisasm is free software: you can redistribute it and/or modify it
 # under the terms of the GNU Affero General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or (at your
 # option) any later version.
-# 
+#
 # MLDisasm is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU Affero General Public License for more details.
-# 
+#
 # You should have received a copy of the GNU Affero General Public License
 # along with MLDisasm.  If not, see <http://www.gnu.org/licenses/>.
 
-'''
+"""
 MLDisasm disassembler model.
 
-Based on https://blog.keras.io/a-ten-minute-introduction-to-sequence-to-sequence-learning-in-keras.html
-'''
+A decoder-only transformer that maps machine code bytes to assembly text.
+"""
 
 import inspect
 
 import numpy as np
-
 import tensorflow as tf
 from tensorflow import keras
 
-from mldisasm.constants import START_TOKEN, STOP_TOKEN
+from mldisasm.constants import START_IDX, END_IDX, PAD_IDX, ASSEMBLY_VOCAB_SIZE
 
-# Default values for model parameters.
 PARAMETER_DEFAULTS = {
-    'x_seq_len':             None,
-    'y_seq_len':             None,
-    'mask_value':            None,
-    'recurrent_unit':        'lstm',
-    'recurrent_layers':      1,
-    'recurrent_activation':  'tanh',
-    'recurrent_use_bias':    True,
-    'recurrent_forget_bias': True,
-    'dropout':               0.0,
-    'recurrent_dropout':     0.0,
-    'dense_activation':      'softmax',
-    'use_softmax':           True,
-    'optimizer':             'SGD',
-    'opt_params':            dict(),
-    'loss':                  'categorical_crossentropy',
-    'metrics':               'acc'
+    'd_model':       256,
+    'num_heads':     8,
+    'num_layers':    6,
+    'ff_dim':        1024,
+    'dropout':       0.1,
+    'max_seq_len':   1024,
+    'x_seq_len':     512,
+    'y_seq_len':     256,
+    'mask_value':    None,
+    'optimizer':     'Adam',
+    'opt_params':    {'learning_rate': 0.001},
+    'loss':          'sparse_categorical_crossentropy',
+    'metrics':       ['accuracy'],
+    'epochs':        100,
+    'batch_size':    64,
+    'kfolds':        10,
+    'shuffle':       True,
 }
 
+
 def _make_params(**kwargs):
-    '''
-    Create parameter set from keyword args and defaults.
-    '''
     params = dict(PARAMETER_DEFAULTS)
     params.update(kwargs)
     return params
 
-def _split_recurrent_states(outputs):
-    '''
-    Split the output of a recurrent unit with return_state enabled into output and state tensors. This is needed
-    because the LSTM returns two hidden states, the GRU and RNN return one hidden state, and a unit with return_state
-    disabled returns only the output tensor.
-    '''
-    n = len(outputs)
-    if n == 1:
-        return outputs, None
-    elif n == 2:
-        return outputs[0], outputs[1]
-    elif n == 3:
-        return outputs[0], [outputs[1],outputs[2]]
-    raise TypeError('Expected tuple with 1 output and either 1 or 2 states, got {} of length {} instead'.format(
-        type(outputs).__name__,
-        n
-    ))
 
-def _make_recurrent_layer(params, **kwargs):
-    '''
-    Make a recurrent layer depending on `params` and `kwargs`.
-    '''
-    # Select only those parameters which are valid for the recurrent unit we're going to use. Fortunately SimpleRNN, GRU
-    # and LSTM take mostly the same parameters, with the exception that only LSTM takes the unit_forget_bias parameter.
-    layer_params = {
-        'units':             params['hidden_size'],
-        'activation':        params['recurrent_activation'],
-        'dropout':           params['dropout'],
-        'use_bias':          params['recurrent_use_bias'],
-        'recurrent_dropout': params['recurrent_dropout']
-    }
-    layer_params.update(kwargs)
-    if params['recurrent_unit'] == 'rnn':
-        return keras.layers.SimpleRNN(**layer_params)
-    elif params['recurrent_unit'] == 'gru':
-        return keras.layers.GRU(**layer_params)
-    elif params['recurrent_unit'] == 'lstm':
-        layer_params['unit_forget_bias'] = params['recurrent_forget_bias']
-        return keras.layers.LSTM(**layer_params)
-    else:
-        raise ValueError('Invalid value for recurrent_unit: {}'.format(params['recurrent_unit']))
+def sinusoidal_position_encoding(max_len, d_model):
+    """Sinusoidal positional encoding, shape (1, max_len, d_model)."""
+    positions = tf.range(max_len, dtype=tf.float32)[:, tf.newaxis]
+    dims = tf.range(d_model, dtype=tf.float32)[tf.newaxis, :]
+    angles = positions / tf.pow(10000.0, 2 * (dims // 2) / d_model)
+    even = tf.sin(angles[:, 0::2])
+    odd = tf.cos(angles[:, 1::2])
+    # Interleave even and odd.
+    encoding = tf.reshape(tf.stack([even, odd], axis=-1), [max_len, d_model])
+    return encoding[tf.newaxis, :, :]
 
-class RecurrentStack(keras.layers.Layer):
-    '''
-    A stack of recurrent layers.
-    '''
-    def __init__(self, params, **kwargs):
-        super().__init__()
-        # Create a copy of params so we can modify it.
-        self.params = params
-        # Create layer(s).
-        self.layers = []
-        if self.params['recurrent_layers'] > 1:
-            # Add first recurrent layer(s), which have return_sequences=True and return_state=False.
-            return_sequences           = kwargs['return_sequences']
-            return_state               = kwargs['return_state']
-            kwargs['return_sequences'] = True
-            kwargs['return_state']     = False
-            for _ in range(self.params['recurrent_layers'] - 1):
-                self.layers.append(_make_recurrent_layer(self.params, **kwargs))
-            # Restore original values.
-            kwargs['return_sequences'] = return_sequences
-            kwargs['return_state']     = return_state
-        # Add the last layer, which gets the original values of return_sequences and return_state.
-        self.layers.append(_make_recurrent_layer(self.params, **kwargs))
 
-    def compute_output_shape(self, input_shape):
-        return self.layers[-1].compute_output_shape(input_shape)
+class TransformerDecoderBlock(keras.layers.Layer):
+    """Transformer decoder block with causal self-attention."""
 
-    def call(self, X, **kwargs):
-        '''
-        Compute the forwards pass.
-        '''
-        X = tf.convert_to_tensor(X, dtype=tf.float32)
-        X = self.layers[0](X, **kwargs)
-        if 'initial_state' in kwargs:
-            del kwargs['initial_state'] # Pass initial_state only to the first layer.
-        for layer in self.layers[1:]:
-            if isinstance(X, tuple):
-                X = X[0]
-            X = layer(X, **kwargs)
-        return X
+    def __init__(self, d_model, num_heads, ff_dim, dropout=0.1, **kwargs):
+        super().__init__(**kwargs)
+        self.d_model = d_model
+        self.num_heads = num_heads
+        self.ff_dim = ff_dim
+        self.dropout_rate = dropout
 
-class DisassemblyEncoder:
-    '''
-    Encoder model.
-    '''
-    def __init__(self, params):
-        # Create the input layer.
-        self.input_shape = (params['x_seq_len'], params['input_size'])
-        self.inputs      = keras.layers.Input(shape=self.input_shape)
-        # Create the recurrent layer(s).
-        params['recurrent_layers'] = params['encoder_layers']
-        self.recurrent = RecurrentStack(
-            params,
-            return_sequences = False,
-            return_state     = True
+    def build(self, input_shape):
+        self.attn = keras.layers.MultiHeadAttention(
+            num_heads=self.num_heads, key_dim=self.d_model // self.num_heads,
+            dropout=self.dropout_rate
         )
-        del params['recurrent_layers']
-        # Create the output. The output of encoder is the predictions and either one (RNN, GRU) or two (LSTM) internal
-        # states. We just want the states to pass to the decoder.
-        outputs = self.recurrent(self.inputs)
-        self.outputs, self.state = _split_recurrent_states(outputs)
-        assert self.state is not None
-        # Create the model.
-        self.model = keras.Model(self.inputs, self.state)
+        self.ffn = keras.Sequential([
+            keras.layers.Dense(self.ff_dim, activation='gelu'),
+            keras.layers.Dense(self.d_model),
+        ])
+        self.layernorm1 = keras.layers.LayerNormalization(epsilon=1e-6)
+        self.layernorm2 = keras.layers.LayerNormalization(epsilon=1e-6)
+        self.dropout1 = keras.layers.Dropout(self.dropout_rate)
+        self.dropout2 = keras.layers.Dropout(self.dropout_rate)
 
-    def call(self, X, **kwargs):
-        '''
-        Forwards pass. See `keras.Model.call`
-        '''
-        return self.model(X, **kwargs)
+    def call(self, x, training=False):
+        seq_len = tf.shape(x)[1]
+        causal_mask = tf.linalg.band_part(tf.ones((seq_len, seq_len)), -1, -1)
+        causal_mask = tf.cast(causal_mask, tf.bool)
+        attn_out = self.attn(x, x, attention_mask=causal_mask, training=training)
+        x = self.layernorm1(x + self.dropout1(attn_out, training=training))
+        ffn_out = self.ffn(x)
+        x = self.layernorm2(x + self.dropout2(ffn_out, training=training))
+        return x
 
-    def __call__(self, X, **kwargs):
-        return self.call(X, **kwargs)
-
-class DisassemblyDecoder:
-    '''
-    Decoder model.
-    '''
-    def __init__(self, params, initial_state):
-        # Create the input layer.
-        self.input_shape = (params['y_seq_len'], params['output_size'])
-        self.inputs      = keras.layers.Input(shape=self.input_shape)
-        # Create the hidden layer(s).
-        params['recurrent_layers'] = params['decoder_layers']
-        self.recurrent = RecurrentStack(
-            params,
-            return_sequences = True,
-            return_state     = True
-        )
-        del params['recurrent_layers']
-        # Create the outputs with the hidden state of the encoder as the decoder's initial state.
-        outputs    = self.recurrent(self.inputs, initial_state=initial_state)
-        outputs, _ = _split_recurrent_states(outputs)
-        # Create the dense layer which maps from hidden space to output space.
-        self.dense   = keras.layers.Dense(params['output_size'], params['dense_activation'])
-        self.outputs = self.dense(outputs)
-        # Set up model for inference. During inference the decoder's states are appended to its inputs.
-        state_shape       = (params['hidden_size'],)
-        inf_states_inputs = []
-        inf_states_inputs.append(keras.layers.Input(shape=state_shape))
-        if params['recurrent_unit'] == 'lstm':
-            # Add second state for LSTM.
-            inf_states_inputs.append(keras.layers.Input(shape=state_shape))
-        inf_outputs             = self.recurrent(self.inputs, initial_state=inf_states_inputs)
-        inf_outputs, inf_states = _split_recurrent_states(inf_outputs)
-        # Create the inference model.
-        self.model = keras.Model(
-            [self.inputs] + inf_states_inputs,
-            [inf_outputs] + inf_states
-        )
-
-    def call(self, X, **kwargs):
-        '''
-        Forwards pass. See `keras.Model.call`
-        '''
-        return self.model(X, **kwargs)
-
-    def __call__(self, X, **kwargs):
-        return self.call(X, **kwargs)
 
 class Disassembler(keras.Model):
-    '''
-    Disassembler model.
-    '''
-    def __init__(self, input_size, hidden_size, output_size, **kwargs):
-        '''
-        Create a disassembler model. After creating the disassembler, you can train it with any of the methods of
-        keras.Model, such as fit(). The inputs to the model (X) is a tuple of the training inputs and targets; the
-        targets of the model (y) are the same as the second input but shifted one timestep along:
+    """Decoder-only transformer for disassembly.
 
-        :example:
-            model = Disassembler(...)
-            model.fit([X, y], tf.roll(y, shift=1, axis=1), ...)
+    Takes byte indices and token indices, embeds them, concatenates,
+    applies transformer decoder blocks, and projects to vocabulary logits.
+    """
 
-        :param input_size: Dimensionality of the input space.
-        :param hidden_size: Number of units per recurrent layer.
-        :param output_size: Dimensionality of the output space.
+    def __init__(self, d_model=256, num_heads=8, num_layers=6, ff_dim=1024,
+                 dropout=0.1, max_seq_len=1024, x_seq_len=512, y_seq_len=256,
+                 vocab_size=None, optimizer='Adam', opt_params=None, loss=None,
+                 metrics=None, epochs=100, batch_size=64, kfolds=10,
+                 shuffle=True, mask_value=None, **kwargs):
+        if vocab_size is None:
+            vocab_size = ASSEMBLY_VOCAB_SIZE
 
-        :note: The following must be passed as keyword arguments if given.
-        :note: Unless otherwise specified all parameters apply to both the encoder and decoder, so e.g. setting
-        recurrent_layers to 2 creates two recurrent layers in *both* the encoder and the decoder (4 layers total).
-
-        :param x_seq_len: Length of the input sequence. Default: None (variable).
-        :param y_seq_len: Length of the output sequence. Default: None (variable).
-        :param mask_value: Mask value. Timesteps with the mask value are skipped. Default: None (no masking).
-        :param recurrent_unit: Type of recurrent unit. Possible values are: 'gru', 'rnn', 'lstm'. Default: lstm.
-        :param recurrent_layers: Number of recurrent layers. Default: 1.
-        :param recurrent_activation: Recurrent activation function. Default: tanh.
-        :param recurrent_use_bias: Whether to use bias in the recurrent layers. Default: True
-        :param recurrent_forget_bias: Whether to use forget bias in LSTM layers. Default: True.
-        :param dropout: Dropout rate between sequences. Default: 0.
-        :param recurrent_dropout: Dropout rate within sequences. Default: 0.
-        :param dense_activation: Activation function for the decoder's dense layer. Default: softmax.
-        :param optimizer: Which optimizer to use. Default: SGD.
-        :param opt_params: Parameters to the optimizer. A common one is 'lr' for learning rate. Default: {}.
-        :param loss: Loss function. Default: categorical_crossentropy.
-        :param metrics: Metrics. Default: accuracy.
-
-        :returns: A trainable disassembler model.
-        '''
         params = _make_params(
-            input_size  = input_size,
-            hidden_size = hidden_size,
-            output_size = output_size,
-            **kwargs
+            d_model=d_model, num_heads=num_heads, num_layers=num_layers,
+            ff_dim=ff_dim, dropout=dropout, max_seq_len=max_seq_len,
+            x_seq_len=x_seq_len, y_seq_len=y_seq_len,
+            optimizer=optimizer, opt_params=opt_params or {},
+            loss=loss, metrics=metrics, epochs=epochs,
+            batch_size=batch_size, kfolds=kfolds, shuffle=shuffle,
+            mask_value=mask_value, **kwargs
         )
-        encoder = DisassemblyEncoder(params)
-        decoder = DisassemblyDecoder(params, encoder.state)
-        super().__init__([encoder.inputs, decoder.inputs], decoder.outputs)
-        self.params  = params
-        self.encoder = encoder
-        self.decoder = decoder
-        self._compile()
 
-    def call(self, X, **kwargs):
-        '''
-        Forwards pass. See `keras.Model.call`
-        '''
-        if kwargs.get('training', False):
-            return super().call(X, **kwargs)
-        return self.infer(X, **kwargs)
+        super().__init__(name='disassembler')
 
-    def infer(self, X, **kwargs):
-        '''
-        Decode an input sequence.
-        :param args: Arguments to predict().
-        :param kwargs: Keyword arguments to predict().
-        :returns: The decoded string.
-        '''
-        # Promote to float32.
-        X = tf.cast(X, tf.float32)
-        # Get the encoded vector.
-        states = self.encoder(X, **kwargs)
-        # Create the target sequence with the start token.
-        y = np.zeros((1, self.params['y_seq_len'], self.params['output_size']), dtype=np.float32)
-        y[0, 0, ord(START_TOKEN)] = 1
-        y = tf.Variable(y)
-        # Decode the sequence(s) in a loop.
-        result = ''
-        while True:
-            # Decoded sequence.
-            outputs = self.decoder([y] + states)
-            tokens, states = _split_recurrent_states(outputs)
-            # Store the token. Set 'stop' flag if the stop token (LF) was generated.
-            index   = tf.argmax(tokens[0, -1, :]).numpy()
-            token   = chr(index)
-            result += token
-            # Update the target sequence.
-            y = np.zeros((1, self.params['y_seq_len'], self.params['output_size']), dtype=np.float32)
-            y[0, 0, index] = 1
-            y = tf.Variable(y)
-            # Break on stop token or when the maximum string length is exceeded.
-            if token == STOP_TOKEN or len(result) >= self.params['y_seq_len']:
+        self.d_model = params['d_model']
+        self.x_seq_len = params['x_seq_len']
+        self.y_seq_len = params['y_seq_len']
+        self.max_seq_len = params['max_seq_len']
+        self.vocab_size = vocab_size
+        self.params = params
+
+        # Embeddings
+        self.byte_embedding = keras.layers.Embedding(256, self.d_model)
+        self.token_embedding = keras.layers.Embedding(vocab_size, self.d_model)
+
+        # Positional encoding (non-trainable)
+        pos_enc = sinusoidal_position_encoding(self.max_seq_len, self.d_model)
+        self.pos_encoding = tf.Variable(pos_enc, trainable=False, name='pos_encoding')
+
+        # Transformer decoder blocks
+        self.decoder_blocks = [
+            TransformerDecoderBlock(self.d_model, params['num_heads'], params['ff_dim'], params['dropout'])
+            for _ in range(params['num_layers'])
+        ]
+
+        # Output projection
+        self.output_projection = keras.layers.Dense(vocab_size)
+
+        self._compile_model()
+
+    def call(self, inputs, training=False):
+        byte_indices, token_indices = inputs
+        byte_emb = self.byte_embedding(byte_indices)
+        tok_emb = self.token_embedding(token_indices)
+        seq_len = tf.shape(byte_emb)[1] + tf.shape(tok_emb)[1]
+        x = tf.concat([byte_emb, tok_emb], axis=1)
+        x = x + self.pos_encoding[:, :seq_len, :]
+
+        for block in self.decoder_blocks:
+            x = block(x, training=training)
+
+        return self.output_projection(x)
+
+    def infer(self, X, max_tokens=None):
+        """Autoregressive greedy decoding.
+
+        :param X: Byte indices, shape (1, x_seq_len).
+        :param max_tokens: Maximum tokens to generate (default: y_seq_len).
+        :returns: Decoded assembly string.
+        """
+        if max_tokens is None:
+            max_tokens = self.y_seq_len
+
+        if isinstance(X, np.ndarray):
+            X = tf.convert_to_tensor(X, dtype=tf.int32)
+        if X.shape.rank == 1:
+            X = X[tf.newaxis, :]
+
+        byte_emb = self.byte_embedding(X)
+
+        token_ids = [START_IDX]
+        token_tensor = tf.convert_to_tensor([token_ids], dtype=tf.int32)
+
+        for _ in range(max_tokens):
+            tok_emb = self.token_embedding(token_tensor)
+            seq_len = tf.shape(byte_emb)[1] + tf.shape(tok_emb)[1]
+            x = tf.concat([byte_emb, tok_emb], axis=1)
+            x = x + self.pos_encoding[:, :seq_len, :]
+
+            for block in self.decoder_blocks:
+                x = block(x, training=False)
+
+            logits = self.output_projection(x)
+            next_token = tf.argmax(logits[0, -1, :]).numpy()
+            token_ids.append(int(next_token))
+            token_tensor = tf.convert_to_tensor([token_ids], dtype=tf.int32)
+
+            if next_token == END_IDX:
                 break
-        return result
 
-    def _compile(self):
+        return self._detokenize(token_ids)
+
+    def _detokenize(self, token_ids):
+        """Convert token indices back to assembly text."""
+        idx_to_char = {i + 4: chr(i) for i in range(128)}
+        idx_to_char[START_IDX] = '\t'
+        idx_to_char[END_IDX] = '\n'
+        return ''.join(
+            idx_to_char.get(t, '?')
+            for t in token_ids
+            if t != PAD_IDX
+        )
+
+    def _compile_model(self):
         optimizer = self.params['optimizer']
         if isinstance(optimizer, str):
-            # If optimizer is str, interpret it as the name of a Keras optimizer.
-            optimizer = getattr(keras.optimizers, optimizer)
-            # Filter out parameters which aren't found in the optimizer's signature. This is needed for gridsearch
-            # because the opt_params grid contains parameter values for all optimizers being searched.
-            signature  = inspect.signature(optimizer)
-            opt_params = dict(filter(
-                lambda kv: kv[0] in signature.parameters,
-                self.params['opt_params']
-            ))
-            # Instantiate the optimizer with the chosen parameters.
-            optimizer = optimizer(**opt_params)
+            optimizer_cls = getattr(keras.optimizers, optimizer)
+            signature = inspect.signature(optimizer_cls)
+            filtered_params = {
+                k: v for k, v in self.params['opt_params'].items()
+                if k in signature.parameters
+            }
+            optimizer = optimizer_cls(**filtered_params)
+        loss = self.params.get('loss', 'sparse_categorical_crossentropy')
         self.compile(
-            optimizer,
-            self.params['loss'],
+            optimizer=optimizer,
+            loss=loss,
             metrics=self.params['metrics']
         )
 
-# Custom objects
+
 CUSTOM_OBJECTS = {
-    'Disassembler':       Disassembler,
-    'DisassemblyDecoder': DisassemblyDecoder,
-    'DisassemblyEncoder': DisassemblyEncoder,
-    'RecurrentStack':     RecurrentStack
+    'Disassembler': Disassembler,
+    'TransformerDecoderBlock': TransformerDecoderBlock,
 }

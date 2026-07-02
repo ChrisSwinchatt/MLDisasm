@@ -31,7 +31,7 @@ if __name__ == '__main__':
 
 import tensorflow as tf
 
-from mldisasm.io.codec        import AsciiCodec, BytesCodec
+from mldisasm.io.codec        import AssemblyTokenizer, ByteIndexer
 from mldisasm.io.file_manager import FileManager
 from mldisasm.training        import parameter_grid, kfolds_train
 from mldisasm.util            import log, prof
@@ -96,8 +96,8 @@ if __name__ == '__main__':
     log.init(file_mgr.open_log())
     try:
         config  = file_mgr.load_config(model_name)
-        x_codec = BytesCodec(config['model']['x_seq_len'], config['model']['mask_value'])
-        y_codec = AsciiCodec(config['model']['y_seq_len'], config['model']['mask_value'])
+        x_codec = ByteIndexer(config['model']['x_seq_len'])
+        y_codec = AssemblyTokenizer(config['model']['y_seq_len'])
         config['model'] = select_params(config, file_mgr, model_name, (x_codec, y_codec))
         del config['grid']
         file_mgr.save_config(model_name, config)

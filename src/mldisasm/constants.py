@@ -31,5 +31,11 @@ BYTEORDER = 'little'
 # First token in a decoded sequence.
 START_TOKEN = '\t'
 
-# Last token in a decoded sequence.
-STOP_TOKEN = '\n'
+# Special token indices for the assembly vocabulary.
+PAD_IDX   = 0
+START_IDX = 1
+END_IDX   = 2
+UNK_IDX   = 3
+
+# Assembly vocabulary size (printable ASCII + 4 special tokens).
+ASSEMBLY_VOCAB_SIZE = ASCII_MAX + 4

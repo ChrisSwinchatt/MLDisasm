@@ -28,7 +28,7 @@ if __name__ == '__main__':
 
 import tensorflow as tf
 
-from mldisasm.io.codec        import AsciiCodec, BytesCodec
+from mldisasm.io.codec        import AssemblyTokenizer, ByteIndexer
 from mldisasm.io.file_manager import FileManager
 from mldisasm.training        import train_model
 from mldisasm.util            import log, prof
@@ -63,8 +63,8 @@ if __name__ == '__main__':
     try:
         config  = file_mgr.load_config(model_name)
         params  = config['model']
-        x_codec = BytesCodec(params['x_seq_len'], params['mask_value'])
-        y_codec = AsciiCodec(params['y_seq_len'], params['mask_value'])
+        x_codec = ByteIndexer(params['x_seq_len'])
+        y_codec = AssemblyTokenizer(params['y_seq_len'])
         model = batch_train(config, params, file_mgr, model_name, (x_codec, y_codec))
         model.save_weights(file_mgr.qualify_model(model_name))
     except Exception as e:

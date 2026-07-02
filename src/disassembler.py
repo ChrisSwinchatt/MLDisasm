@@ -34,7 +34,7 @@ if __name__ == '__main__':
 
 import tensorflow as tf
 
-from mldisasm.io.codec        import AsciiCodec, BytesCodec
+from mldisasm.io.codec        import AssemblyTokenizer, ByteIndexer
 from mldisasm.io.file_manager import FileManager
 from mldisasm.util            import log
 from mldisasm.model           import Disassembler
@@ -49,8 +49,8 @@ if __name__ == '__main__':
 
     file_mgr = FileManager()
     config   = file_mgr.load_config(model_name)
-    x_codec  = BytesCodec(config['model']['x_seq_len'], config['model']['mask_value'])
-    y_codec  = AsciiCodec(config['model']['y_seq_len'], config['model']['mask_value'])
+    x_codec  = ByteIndexer(config['model']['x_seq_len'])
+    y_codec  = AssemblyTokenizer(config['model']['y_seq_len'])
 
     model = Disassembler(**config['model'])
     model.load_weights(file_mgr.qualify_model(model_name))
@@ -62,7 +62,6 @@ if __name__ == '__main__':
             if not buf:
                 break
             encoded = x_codec.encode(buf)
-            pred    = model.predict(tf.convert_to_tensor([encoded]))
-            decoded = y_codec.decode(pred)
+            decoded = model.infer(tf.convert_to_tensor([encoded]))
             print(f'0x{offset:08x}:\t{buf.hex()}\t{decoded}')
             offset += len(buf)

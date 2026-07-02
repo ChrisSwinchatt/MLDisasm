@@ -33,7 +33,7 @@ import tensorflow as tf
 
 tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.INFO)
 
-from mldisasm.io.codec        import AsciiCodec, BytesCodec
+from mldisasm.io.codec        import AssemblyTokenizer, ByteIndexer
 from mldisasm.io.file_manager import FileManager
 from mldisasm.model           import Disassembler
 
@@ -45,15 +45,13 @@ if __name__ == '__main__':
 
     file_mgr = FileManager()
     config   = file_mgr.load_config(model_name)
-    x_codec  = BytesCodec(config['model']['x_seq_len'], config['model']['mask_value'])
-    y_codec  = AsciiCodec(config['model']['y_seq_len'], config['model']['mask_value'])
+    x_codec  = ByteIndexer(config['model']['x_seq_len'])
+    y_codec  = AssemblyTokenizer(config['model']['y_seq_len'])
 
     model = Disassembler(**config['model'])
     model.load_weights(file_mgr.qualify_model(model_name))
 
     sample = 0
-    losses = [None] * config['max_records']
-    accs   = [None] * config['max_records']
     for X, y_true in file_mgr.yield_validation(model_name, (x_codec, y_codec)):
         X = tf.expand_dims(X, 0)
         y_pred = model.infer(X)

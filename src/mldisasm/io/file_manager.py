@@ -171,57 +171,49 @@ class FileManager:
         '''
         Load (up to) an entire training set into memory at once.
         :param name: The model name.
-        :param codecs: A tuple of (AsciiCodec,BytsCodec).
+        :param codecs: A tuple of (ByteIndexer, AssemblyTokenizer).
         :param block_size: The amount of data to read at once. Affects I/O performance but probably isn't critical.
         Default is 64K.
         :param max_records: The maximum number of records to load. Default: infinity, which means load everything.
-        :returns: A tuple of the training inputs and targets.
+        :returns: A tuple of (X, y) where X is (byte_indices, token_indices) and y is token_indices.
         '''
         with self.open_training(name) as file:
             return _do_load_training(file, codecs, block_size, max_records)
 
     def yield_training(self, name, codecs, batch_size, block_size=65535, max_records=np.inf, loop_mode=False):
-        '''
+        """
         Yield training samples in batches.
-        :param name: The name of the training set.
-        :param codecs: A tuple of (AsciiCodec,BytsCodec).
-        :param batch_size: The number of records in each batch. The actual size of a batch may be smaller than
-        batch_size if there are fewer records in the file, or max_records is smaller than batch_size.
-        :param block_size: How many bytes to load from the file at once. This can effect performance, but not the number
-        of records returned - more than one block will be read if necessary.
-        :param max_records: The maximum number of records to load. Overrides batch_size if max_records is smaller.
-        Default value is infinity, which means load up to batch_size or the entire file, whichever is smaller.
-        :param loop_mode: If True, the generator loops over the training set indefinitely. Default is False.
-        :yields: A tuple of the training inputs and targets.
-        '''
+
+        :param name: Training set name.
+        :param codecs: Tuple of (ByteIndexer, AssemblyTokenizer).
+        :param batch_size: Records per batch.
+        :param block_size: Bytes to read at once from file.
+        :param max_records: Maximum records to yield (inf = unlimited).
+        :param loop_mode: If True, loop indefinitely.
+        :yields: Tuple ((byte_indices, token_indices), token_indices).
+        """
         with self.open_training(name) as file:
-            batch_num   = 0
+            batch_num = 0
             num_records = max_records
             while True:
-                # Load the next batch of records.
                 count = min(batch_size, num_records)
                 batch_num += 1
                 Xy = None
                 if count:
-                    Xy = _do_load_training(file, codecs, block_size, count, line_num=batch_num*count)
-                # Break or reset if we reached EOF.
+                    Xy = _do_load_training(file, codecs, block_size, count, line_num=batch_num * count)
                 if not Xy:
                     if not loop_mode:
                         break
-                    # mldisasm.training.kfolds_train requires that the generator loop over its data repeatedly. This
-                    # breaks Python generator semantics (generators are single-use) but is needed for cross-validation.
                     log.debug('Restarting training file generator')
                     file.seek(0)
-                    count       = batch_size
-                    batch_num   = 0
+                    count = batch_size
+                    batch_num = 0
                     num_records = max_records
                     continue
-                # Check & yield results. Update num_records so we load fewer records next time if
                 X, y = Xy
-                assert len(X.shape) == 3
-                assert len(y.shape) == 3
-                assert X.shape[0] == y.shape[0]
-                num_records -= int(X.shape[0])
+                x_bytes, x_tokens = X
+                assert x_bytes.shape[0] == x_tokens.shape[0] == y.shape[0]
+                num_records -= int(x_bytes.shape[0])
                 if num_records < 0:
                     num_records = 0
                 yield X, y
@@ -245,11 +237,11 @@ class FileManager:
         '''
         Load (up to) an entire validation set into memory at once.
         :param name: The model name.
-        :param codecs: A tuple of (AsciiCodec,BytsCodec).
-        :param block_size: The amount of data to read at once. Affects I/O performance but probably isn't critical.
+        :param codecs: A tuple of (ByteIndexer, AssemblyTokenizer).
+        :param block_size: The amount of data to read at once.
         Default is 64K.
-        :param max_records: The maximum number of records to load. Default: infinity, which means load everything.
-        :returns: A tuple of the training inputs and targets.
+        :param max_records: The maximum number of records to load.
+        :returns: A tuple of ((byte_indices, token_indices), token_indices).
         '''
         with self.open_validation(name) as file:
             return _do_load_training(file, codecs, block_size, max_records)
@@ -258,8 +250,8 @@ class FileManager:
         '''
         Yield validation samples one at a time.
         :param name: The model name.
-        :param codecs: A tuple of (BytesCodec,AsciiCodec).
-        :yields: A single pair of validation inputs and targets.
+        :param codecs: A tuple of (ByteIndexer, AssemblyTokenizer).
+        :yields: A tuple of (byte_indices, ground_truth_string).
         '''
         with self.open_validation(name) as file:
             x_codec, y_codec = codecs
@@ -278,19 +270,15 @@ class FileManager:
     _tokens_name       = 'tokens.list'      # Token list filename.
 
 def _do_load_training(file, codecs, block_size, max_records, line_num=1):
-    '''
+    """
     Load up to `max_records` from `file` using blocks of `block_size` bytes.
-    :returns: A tuple of the training inputs and labels, or None if there are no records left in the file.
-    '''
+    :returns: A tuple of ((byte_indices, token_indices), token_indices) or None if EOF.
+    """
     with prof('Loaded batch ({} records)', lambda: num_lines):
         num_lines = 0
         x_codec, y_codec = codecs
-        # Blocks are likely to end partway through a record, so we read more data than we need and discard any
-        # excess records. We save the file position so we can calculate the amount of data actually used and seek to
-        # the beginning of the discarded record(s) for the next read.
-        file_pos  = file.tell()
-        data      = ''
-        num_lines = 0
+        file_pos = file.tell()
+        data = ''
         while data.count('\n') <= max_records:
             block = file.read(block_size)
             if not block:
@@ -298,18 +286,17 @@ def _do_load_training(file, codecs, block_size, max_records, line_num=1):
             data += block
         if not data:
             return None
-        # Split on newline and discard records above the maximum.
-        lines     = data.split('\n')
+        lines = data.split('\n')
         num_lines = min(len(lines), max_records)
-        # Process the records and rewind to account for any extra records read.
-        X = [None]*num_lines
-        y = [None]*num_lines
-        len_lines = 0
+        X_bytes = [None] * num_lines
+        X_tokens = [None] * num_lines
+        len_bytes = 0
         for i in range(num_lines):
-            line_num += i
-            len_lines += len(lines[i]) + 1 # +1 to account for newline stripped by str.split().
+            line_num += 1
+            len_bytes += len(lines[i]) + 1
             opcode, disasm = lines[i].split('|')
-            X[i] = x_codec.encode(opcode)
-            y[i] = y_codec.encode(disasm)
-        file.seek(file_pos + len_lines)
-        return tf.convert_to_tensor(X), tf.convert_to_tensor(y)
+            X_bytes[i] = x_codec.encode(opcode, as_tensor=False)
+            X_tokens[i] = y_codec.encode(disasm, as_tensor=False)
+        file.seek(file_pos + len_bytes)
+        X = (tf.convert_to_tensor(X_bytes), tf.convert_to_tensor(X_tokens))
+        return X, tf.convert_to_tensor(X_tokens)
