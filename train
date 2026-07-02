@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Copyright (C) 2018,2021 Chris Swinchatt
+# Copyright (C) 2018,2021,2026 Chris Swinchatt
 # 
 # MLDisasm is free software: you can redistribute it and/or modify it
 # under the terms of the GNU Affero General Public License as published by
@@ -19,6 +19,6 @@ here=$(dirname "$0")
 
 . "${here}/tools/common"
 
-[[ "${MLD_TRACE}" = "1" ]] && PYTHON_ARGS=("-m trace -l")
+[[ "${MLD_TRACE}" = "1" ]] && PYTHON_ARGS=(-m trace -l)
 
-time "${python}" ${PYTHON_ARGS} "${here}/src/trainer.py" $*
+time "${python}" "${PYTHON_ARGS[@]}" "${here}/src/trainer.py" $*
