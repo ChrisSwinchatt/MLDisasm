@@ -23,8 +23,8 @@ import random
 
 import numpy as np
 
-import tensorflow               as tf
-import tensorflow.keras.backend as K
+import tensorflow as tf
+from tensorflow import keras
 
 from mldisasm.model import Disassembler
 from mldisasm.util  import log, prof
@@ -102,7 +102,7 @@ def train_model(X, y, params, train=None, test=None, retrain=None):
     validation_data = None
     if train is not None and test is not None:
         X, y, X_test, y_test = cv_split(X, y, train, test)
-        validation_data      = [[X_test,y_test],tf.manip.roll(y_test, 1, 1)]
+        validation_data      = [[X_test, y_test], tf.roll(y_test, shift=1, axis=1)]
     elif train is None != test is None:
         raise ValueError('Either none or both of train and test should be None')
     # Retrain existing model or create a new one.
@@ -111,16 +111,13 @@ def train_model(X, y, params, train=None, test=None, retrain=None):
         model = Disassembler(**params)
     # Train the model.
     log.info('Training model with parameters {}'.format(params))
-    K.set_learning_phase(1)
     num_epochs = params['epochs']
     history    = model.fit(
         [X, y],
-        tf.manip.roll(y, 1, 1),
-        epochs           = num_epochs,
-        steps_per_epoch  = 1,
-        validation_data  = validation_data,
-        validation_steps = 0 if validation_data is None else 1
-        #callbacks        = [keras.callbacks.TensorBoard(log_dir=os.path.join(FileManager.default_data_dir, 'tb'))]
+        tf.roll(y, shift=1, axis=1),
+        epochs          = num_epochs,
+        steps_per_epoch = 1,
+        validation_data = validation_data
     )
     # Extract metrics.
     acc, loss = 'acc', 'loss'
@@ -132,7 +129,7 @@ def train_model(X, y, params, train=None, test=None, retrain=None):
 def _train_fold(X, y, params, train, test, fold_num):
     random.seed(1)
     np.random.seed(1)
-    tf.set_random_seed(1)
+    tf.random.set_seed(1)
     acc = -np.inf
     loss = np.inf
     with prof(

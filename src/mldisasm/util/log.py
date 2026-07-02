@@ -77,7 +77,7 @@ class TeeHandler(logging.Handler):
         super().__init__(level)
         # Set up file handler. The log file contains all logging messages.
         if isinstance(file, str):
-            file = open(str, 'w')
+            file = open(file, 'w')
         self.file_handler = logging.StreamHandler(file)
         self.file_handler.setLevel(logging.NOTSET)
         self.file_handler.setFormatter(logging.Formatter(fmt))

@@ -1,4 +1,6 @@
 .vscode/
+.env
+data/
 .pytest_cache
 __pycache__/
 *.pyc
@@ -8,3 +10,7 @@ __pycache__/
 *.bin
 data/tb
 *.tb
+*.egg-info/
+dist/
+build/
+*.h5

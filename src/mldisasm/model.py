@@ -25,8 +25,8 @@ import inspect
 
 import numpy as np
 
-import tensorflow       as tf
-import tensorflow.keras as keras
+import tensorflow as tf
+from tensorflow import keras
 
 from mldisasm.constants import START_TOKEN, STOP_TOKEN
 
@@ -232,7 +232,7 @@ class Disassembler(keras.Model):
 
         :example:
             model = Disassembler(...)
-            model.fit([X, y], tf.manip.roll(y, 1, 1), ...)
+            model.fit([X, y], tf.roll(y, shift=1, axis=1), ...)
 
         :param input_size: Dimensionality of the input space.
         :param hidden_size: Number of units per recurrent layer.
@@ -304,7 +304,7 @@ class Disassembler(keras.Model):
             outputs = self.decoder([y] + states)
             tokens, states = _split_recurrent_states(outputs)
             # Store the token. Set 'stop' flag if the stop token (LF) was generated.
-            index   = np.argmax(tokens[0, -1, :])
+            index   = tf.argmax(tokens[0, -1, :]).numpy()
             token   = chr(index)
             result += token
             # Update the target sequence.

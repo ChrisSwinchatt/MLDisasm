@@ -23,8 +23,8 @@ from abc import ABCMeta, abstractmethod
 
 import numpy as np
 
-import tensorflow       as tf
-import tensorflow.keras as keras
+import tensorflow as tf
+from tensorflow import keras
 
 from mldisasm.constants import ASCII_MAX, BYTE_MAX, BYTEORDER, START_TOKEN, STOP_TOKEN
 from mldisasm.util      import log
@@ -89,7 +89,7 @@ class AsciiCodec(Codec):
         '''
         # Check type and convert into NumPy array if needed.
         if isinstance(onehot, tf.Tensor):
-            onehot = onehot.eval()
+            onehot = onehot.numpy()
         elif isinstance(onehot, list):
             onehot = np.asarray(onehot)
         elif not isinstance(onehot, np.ndarray):
@@ -160,7 +160,7 @@ class BytesCodec(Codec):
             np.argmax,
             filter(
                 lambda oh: np.max(oh) > 0,
-                tensor.eval()
+                tensor.numpy()
             )
         )
         return bytes(indices)

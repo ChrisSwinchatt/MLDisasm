@@ -23,8 +23,8 @@ import os
 
 import numpy as np
 
-import tensorflow       as tf
-import tensorflow.keras as keras
+import tensorflow as tf
+from tensorflow import keras
 
 try:
     import ujson as json
@@ -45,7 +45,8 @@ class FileManager:
         Initialise FileManager.
         :param data_dir: The path to the data directory. If None, defaults to FileManager.default_data_dir.
         '''
-        data_dir = FileManager.default_data_dir
+        if data_dir is None:
+            data_dir = FileManager.default_data_dir
         self.chdir(data_dir)
 
     def chdir(self, path):

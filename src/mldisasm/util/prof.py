@@ -161,33 +161,9 @@ class MemoryProfiler(GenericResourceProfiler):
             _format_memory_usage(abs(delta))
         )
 
-class GraphProfiler(GenericResourceProfiler):
-    '''
-    Profile graph operations.
-    '''
-    def measure_resource(self):
-        '''
-        Measure graph nodes.
-        '''
-        import tensorflow as tf
-        return len(tf.get_default_graph().get_operations())
-
-    def __str__(self):
-        delta = self.compute_delta()
-        unit  = ''
-        if delta >= 10000:
-            delta /= 1000
-            unit = 'K'
-        return '{}ed {}{} graph nodes'.format(
-            'add' if delta >= 0 else 'remov',
-            abs(delta),
-            unit
-        )
-
 _RESOURCE_PROFILERS = {
     'time':   TimeProfiler,
     'memory': MemoryProfiler,
-    'graph':  GraphProfiler
 }
 
 class Profiler:
@@ -195,7 +171,7 @@ class Profiler:
     Reports time taken or memory used between its initialisation and its destruction (or when the end method is called,
     whichever comes first).
     '''
-    def __init__(self, start_msg, end_msg, *args, log_level='debug', resources=['time','memory','graph']):
+    def __init__(self, start_msg, end_msg, *args, log_level='debug', resources=['time','memory']):
         '''
         Initialise Profiler.
         :param start_msg: A message to print upon starting. If None or empty, nothing is printed.
