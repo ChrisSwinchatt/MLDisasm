@@ -212,6 +212,10 @@ class Disassembler(keras.Model):
     def infer(self, X, max_tokens=None):
         """Autoregressive greedy decoding.
 
+        Byte embeddings are cached since they never change during decoding.
+        The full fused sequence is rebuilt and run through all decoder blocks
+        each step.
+
         :param X: Byte values, shape (x_seq_len,) or (1, x_seq_len).
         :param max_tokens: Maximum tokens to generate (default: y_seq_len).
         :returns: Decoded assembly string.
@@ -225,22 +229,19 @@ class Disassembler(keras.Model):
             X = X[tf.newaxis, :]
 
         x_len = tf.shape(X)[1]
-        # Pad byte portion to x_seq_len if needed.
         if x_len < self.x_seq_len:
             pad = tf.zeros((1, self.x_seq_len - x_len), dtype=tf.int32)
             X = tf.concat([X, pad], axis=1)
 
-        # Start sequence: byte values + START token.
-        token_ids = tf.convert_to_tensor([[START_IDX]], dtype=tf.int32)
-        seq = tf.concat([X, token_ids], axis=1)
+        # Cache raw byte embeddings (no decoder block processing yet).
+        cached_byte_emb = self.fused_embed.byte_embed(X)
+
+        token_ids = [START_IDX]
+        token_tensor = tf.convert_to_tensor([token_ids], dtype=tf.int32)
 
         for _ in range(max_tokens):
-            # Truncate if too long.
-            if tf.shape(seq)[1] > self.max_seq_len:
-                seq = seq[:, -self.max_seq_len:]
-
-            # Cache byte embeddings since they never change.
-            x = self.fused_embed(seq)
+            tok_emb = self.fused_embed.token_embed(token_tensor)
+            x = tf.concat([cached_byte_emb, tok_emb], axis=1)
             seq_len = tf.shape(x)[1]
             x = x + self.pos_encoding[:, :seq_len, :]
 
@@ -251,14 +252,13 @@ class Disassembler(keras.Model):
             next_token = tf.argmax(logits[0, -1, :])
             next_token_id = tf.cast(next_token, tf.int32)
 
-            seq = tf.concat([seq, next_token_id[tf.newaxis, tf.newaxis]], axis=1)
+            token_ids.append(int(next_token_id))
+            token_tensor = tf.convert_to_tensor([token_ids], dtype=tf.int32)
 
             if next_token_id == END_IDX:
                 break
 
-        # Extract just the token portion for decoding.
-        token_ids = seq[0, self.x_seq_len:]
-        return self._detokenize(token_ids.numpy().tolist())
+        return self._detokenize(token_ids)
 
     def _detokenize(self, token_ids):
         """Convert token indices to assembly text."""

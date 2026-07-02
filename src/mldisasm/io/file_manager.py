@@ -200,7 +200,7 @@ class FileManager:
                 batch_num += 1
                 Xy = None
                 if count:
-                    Xy = _do_load_training(file, codecs, block_size, count, line_num=batch_num * count)
+                    Xy = _do_load_training(file, codecs, block_size, count)
                 if not Xy:
                     if not loop_mode:
                         break
@@ -267,9 +267,9 @@ class FileManager:
     _model_name        = 'model.h5'         # Model filename.
     _training_name     = 'training.csv'     # Preprocessed training set filename.
     _validation_name   = 'validation.csv'   # Validation training set filename.
-    _tokens_name       = 'tokens.list'      # Token list filename.
 
-def _do_load_training(file, codecs, block_size, max_records, line_num=1):
+
+def _do_load_training(file, codecs, block_size, max_records):
     """
     Load up to `max_records` from `file` using blocks of `block_size` bytes.
     :returns: A tuple of ((byte_indices, token_indices), token_indices) or None if EOF.
@@ -292,7 +292,6 @@ def _do_load_training(file, codecs, block_size, max_records, line_num=1):
         X_tokens = [None] * num_lines
         len_bytes = 0
         for i in range(num_lines):
-            line_num += 1
             len_bytes += len(lines[i]) + 1
             opcode, disasm = lines[i].split('|')
             X_bytes[i] = x_codec.encode(opcode, as_tensor=False)
