@@ -17,6 +17,8 @@
 
 """
 MLDisasm training utilities.
+
+LLM-style autoregressive next-token prediction training.
 """
 
 import random
@@ -25,17 +27,13 @@ import numpy as np
 import tensorflow as tf
 from tensorflow import keras
 
-from mldisasm.constants import ASSEMBLY_VOCAB_SIZE
+from mldisasm.constants import ASSEMBLY_VOCAB_SIZE, PAD_IDX
 from mldisasm.model import Disassembler
 from mldisasm.util import log, prof
 
 
 def grids(params):
-    """Generate parameter sets from a parameter grid.
-
-    :param params: Dictionary whose values are lists.
-    :yields: One parameter set for each combination of grid values.
-    """
+    """Generate parameter sets from a parameter grid."""
     keys, values = zip(*sorted(params.items()))
     sizes = [len(v) for v in values]
     for i in range(int(np.prod(sizes))):
@@ -53,13 +51,7 @@ def parameter_grid(params):
 
 
 def kfolds(n, k=3, shuffle=True):
-    """Generate k-fold cross-validation indices.
-
-    :param n: Number of samples.
-    :param k: Number of folds (must be > 1).
-    :param shuffle: Whether to shuffle fold order.
-    :yields: Tuple of (train_indices, test_indices).
-    """
+    """Generate k-fold cross-validation indices."""
     m = n // k
     for i in range(k):
         start = i * m
@@ -72,55 +64,76 @@ def kfolds(n, k=3, shuffle=True):
         yield train, test
 
 
-def cv_split(X, y, train, test):
-    """Split tensors for cross-validation."""
-    return (
-        tf.gather(X[0], train), tf.gather(X[1], train),
-        tf.gather(y, train),
-        tf.gather(X[0], test), tf.gather(X[1], test),
-        tf.gather(y, test),
-    )
+def fuse_sequences(byte_indices, token_indices):
+    """Fuse byte values and token indices into a single sequence.
 
-
-def make_training_target(y, x_seq_len):
-    """Create next-token prediction target.
-
-    Shifts token indices right by one and pads the loss mask to include
-    the byte portion (masked out with -100).
-
-    :param y: Token indices, shape (batch, y_seq_len).
-    :param x_seq_len: Length of byte sequence.
-    :returns: (targets, sample_weight) where targets has shape
-              (batch, x_seq_len + y_seq_len) and sample_weight masks
-              the byte positions.
+    :param byte_indices: (batch, x_seq_len) byte values 0-255.
+    :param token_indices: (batch, y_seq_len) assembly token indices.
+    :returns: (batch, x_seq_len + y_seq_len) fused sequence.
     """
-    batch_size = tf.shape(y)[0]
-    y_seq_len = tf.shape(y)[1]
-    total_len = x_seq_len + y_seq_len
+    return tf.concat([byte_indices, token_indices], axis=1)
 
-    # Shift tokens right for next-token prediction.
-    shifted = tf.roll(y, shift=1, axis=1)
-    # First non-byte position is START token target, use a pad for start.
-    start_col = tf.fill([batch_size, 1], tf.cast(0, y.dtype))
-    shifted = tf.concat([start_col, shifted[:, 1:]], axis=1)
 
-    # Pad byte positions with zeros, then set up sample weight.
-    byte_pad = tf.zeros([batch_size, x_seq_len], dtype=y.dtype)
-    targets = tf.concat([byte_pad, shifted], axis=1)
+def make_llm_targets(fused_seq, x_seq_len):
+    """Create next-token prediction targets with byte position masking.
 
-    # Sample weight: 0 for byte positions, 1 for token positions.
+    Shifts the full sequence right by 1 and masks byte positions with -100
+    so the loss ignores them.
+
+    :param fused_seq: (batch, total_len) fused [bytes|tokens].
+    :param x_seq_len: Number of byte positions.
+    :returns: (targets, sample_weight) each (batch, total_len).
+    """
+    batch_size = tf.shape(fused_seq)[0]
+    total_len = tf.shape(fused_seq)[1]
+    y_len = total_len - x_seq_len
+
+    # Shift right: targets[i] = fused_seq[i+1], last target is PAD.
+    targets = tf.concat([
+        fused_seq[:, 1:],
+        tf.fill([batch_size, 1], tf.cast(PAD_IDX, fused_seq.dtype))
+    ], axis=1)
+
+    # Mask: 0 for byte positions, 1 for token positions.
     byte_mask = tf.zeros([batch_size, x_seq_len], dtype=tf.float32)
-    token_mask = tf.ones([batch_size, y_seq_len], dtype=tf.float32)
+    token_mask = tf.ones([batch_size, y_len], dtype=tf.float32)
     sample_weight = tf.concat([byte_mask, token_mask], axis=1)
 
     return targets, sample_weight
 
 
-def train_model(X, y, params, train=None, test=None, retrain=None):
-    """Train a model.
+def make_dataset(X, y, x_seq_len, batch_size, shuffle=False):
+    """Create a tf.data.Dataset for LLM-style training.
 
     :param X: Tuple of (byte_indices, token_indices).
-    :param y: Token indices for target shifting.
+    :param y: Token indices (used for fused sequence construction).
+    :param x_seq_len: Number of byte positions.
+    :param batch_size: Batch size.
+    :param shuffle: Whether to shuffle.
+    :returns: A tf.data.Dataset yielding (fused_seq, targets, sample_weight).
+    """
+    byte_indices, token_indices = X
+    n = int(byte_indices.shape[0])
+
+    # Build fused sequences.
+    fused = fuse_sequences(byte_indices, token_indices)
+    targets, sample_weight = make_llm_targets(fused, x_seq_len)
+
+    ds = tf.data.Dataset.from_tensor_slices((fused, targets, sample_weight))
+
+    if shuffle:
+        ds = ds.shuffle(n)
+
+    ds = ds.batch(batch_size, drop_remainder=False)
+    ds = ds.prefetch(tf.data.AUTOTUNE)
+    return ds
+
+
+def train_model(X, y, params, train=None, test=None, retrain=None):
+    """Train a model with LLM-style next-token prediction.
+
+    :param X: Tuple of (byte_indices, token_indices).
+    :param y: Token indices.
     :param params: Model parameters.
     :param train: Training indices for CV, or None.
     :param test: Test indices for CV, or None.
@@ -128,14 +141,32 @@ def train_model(X, y, params, train=None, test=None, retrain=None):
     :returns: (model, accuracy, loss).
     """
     validation_data = None
+    x_seq_len = params['x_seq_len']
+
+    # Build training dataset.
+    byte_indices, token_indices = X
     if train is not None and test is not None:
-        X0_train, X1_train, y_train, X0_test, X1_test, y_test = cv_split(X, y, train, test)
-        X = (X0_train, X1_train)
-        y = y_train
-        X_test = (X0_test, X1_test)
-        y_test_targets, _ = make_training_target(y_test, params['x_seq_len'])
-        validation_data = (X_test, y_test_targets)
-    elif train is None != test is None:
+        # Cross-validation split.
+        train_byte = tf.gather(byte_indices, train)
+        train_token = tf.gather(token_indices, train)
+        test_byte = tf.gather(byte_indices, test)
+        test_token = tf.gather(token_indices, test)
+
+        train_ds = make_dataset(
+            (train_byte, train_token), tf.gather(y, train),
+            x_seq_len, params['batch_size'], shuffle=True
+        )
+        val_ds = make_dataset(
+            (test_byte, test_token), tf.gather(y, test),
+            x_seq_len, params['batch_size'], shuffle=False
+        )
+    elif train is None and test is None:
+        train_ds = make_dataset(
+            (byte_indices, token_indices), y,
+            x_seq_len, params['batch_size'], shuffle=True
+        )
+        val_ds = None
+    else:
         raise ValueError('Either both or neither of train and test should be None')
 
     model = retrain
@@ -144,18 +175,14 @@ def train_model(X, y, params, train=None, test=None, retrain=None):
 
     log.info(f'Training model with parameters {params}')
 
-    targets, sample_weight = make_training_target(y, params['x_seq_len'])
-
     history = model.fit(
-        X, targets,
-        sample_weight=sample_weight,
+        train_ds,
         epochs=params['epochs'],
-        steps_per_epoch=1,
-        validation_data=validation_data,
+        validation_data=val_ds,
     )
 
-    acc_key = 'val_accuracy' if validation_data is not None else 'accuracy'
-    loss_key = 'val_loss' if validation_data is not None else 'loss'
+    acc_key = 'val_accuracy' if val_ds is not None else 'accuracy'
+    loss_key = 'val_loss' if val_ds is not None else 'loss'
     acc = history.history[acc_key][-1]
     loss = history.history[loss_key][-1]
     return model, acc, loss

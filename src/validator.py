@@ -23,8 +23,6 @@ Usage: {0} <model>
 import os
 import sys
 
-import numpy as np
-
 if __name__ == '__main__':
     print('*** Starting up...')
     os.environ['TF_CPP_MIN_LOG_LEVEL'] = '1'
@@ -53,7 +51,6 @@ if __name__ == '__main__':
 
     sample = 0
     for X, y_true in file_mgr.yield_validation(model_name, (x_codec, y_codec)):
-        X = tf.expand_dims(X, 0)
         y_pred = model.infer(X)
         sample += 1
         print(f'Sample {sample}: y_pred="{y_pred}", y_true="{y_true}"')

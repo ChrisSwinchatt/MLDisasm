@@ -38,7 +38,7 @@ from mldisasm.util            import log, prof
 
 
 def tune_subprocess(queue, config, params, file_mgr, model_name, codecs):
-    """Train a model with a set of parameters and return the average accuracy and loss."""
+    """Train a model with a set of parameters (runs in subprocess)."""
     X, y = file_mgr.load_training(model_name, codecs, max_records=config['gs_records'])
     acc, loss = kfolds_train(X, y, params)
     queue.put((acc, loss))
@@ -55,11 +55,12 @@ def select_params(config, file_mgr, model_name, codecs):
     num_fits    = len(grid)
     best_params = None
     best_acc    = -np.inf
-    acc         = 0
-    loss        = 0
+    acc         = 0.0
+    loss        = 0.0
     for grid_params in grid:
         with prof(
-            'Grid {}/{}: acc={}%, loss={}', fit_num, num_fits, lambda: 100 * acc, lambda: round(loss, 4),
+            'Grid {}/{}: acc={}%, loss={}', fit_num, num_fits,
+            lambda: 100 * acc, lambda: round(loss, 4),
             log_level='info',
             start_msg=f'Grid {fit_num}/{num_fits}: {grid_params}'
         ):
@@ -67,7 +68,10 @@ def select_params(config, file_mgr, model_name, codecs):
             params.update(grid_params)
             try:
                 queue   = mp.Queue()
-                process = mp.Process(target=tune_subprocess, args=(queue, config, params, file_mgr, model_name, codecs))
+                process = mp.Process(
+                    target=tune_subprocess,
+                    args=(queue, config, params, file_mgr, model_name, codecs)
+                )
                 process.start()
                 acc, loss = queue.get()
             finally:

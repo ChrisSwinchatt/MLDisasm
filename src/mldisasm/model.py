@@ -18,7 +18,9 @@
 """
 MLDisasm disassembler model.
 
-A decoder-only transformer that maps machine code bytes to assembly text.
+A decoder-only transformer trained like an LLM: takes a fused sequence of
+[byte_values | assembly_tokens], predicts the next assembly token at each
+position, with causal self-attention and loss masked on byte positions.
 """
 
 import inspect
@@ -38,7 +40,6 @@ PARAMETER_DEFAULTS = {
     'max_seq_len':   1024,
     'x_seq_len':     512,
     'y_seq_len':     256,
-    'mask_value':    None,
     'optimizer':     'Adam',
     'opt_params':    {'learning_rate': 0.001},
     'loss':          'sparse_categorical_crossentropy',
@@ -63,9 +64,37 @@ def sinusoidal_position_encoding(max_len, d_model):
     angles = positions / tf.pow(10000.0, 2 * (dims // 2) / d_model)
     even = tf.sin(angles[:, 0::2])
     odd = tf.cos(angles[:, 1::2])
-    # Interleave even and odd.
     encoding = tf.reshape(tf.stack([even, odd], axis=-1), [max_len, d_model])
     return encoding[tf.newaxis, :, :]
+
+
+class FusedEmbedding(keras.layers.Layer):
+    """Embeds a fused [bytes|tokens] sequence.
+
+    Positions 0..x_seq_len-1 are byte values (0-255) embedded via byte_embed.
+    Positions x_seq_len..end are token indices embedded via token_embed.
+    """
+
+    def __init__(self, x_seq_len, d_model, vocab_size, **kwargs):
+        super().__init__(**kwargs)
+        self.x_seq_len = x_seq_len
+        self.byte_embed = keras.layers.Embedding(256, d_model, name='byte_embedding')
+        self.token_embed = keras.layers.Embedding(vocab_size, d_model, name='token_embedding')
+
+    def call(self, inputs):
+        seq_ids = inputs  # (batch, total_seq_len)
+        batch_size = tf.shape(seq_ids)[0]
+        total_len = tf.shape(seq_ids)[1]
+
+        # Split the sequence into byte and token portions.
+        x_len = tf.minimum(self.x_seq_len, total_len)
+        byte_part = seq_ids[:, :x_len]
+        token_part = seq_ids[:, x_len:]
+
+        byte_emb = self.byte_embed(byte_part)    # (batch, x_len, d_model)
+        tok_emb = self.token_embed(token_part)   # (batch, y_len, d_model)
+
+        return tf.concat([byte_emb, tok_emb], axis=1)
 
 
 class TransformerDecoderBlock(keras.layers.Layer):
@@ -104,10 +133,14 @@ class TransformerDecoderBlock(keras.layers.Layer):
 
 
 class Disassembler(keras.Model):
-    """Decoder-only transformer for disassembly.
+    """Decoder-only transformer for disassembly, trained like an LLM.
 
-    Takes byte indices and token indices, embeds them, concatenates,
-    applies transformer decoder blocks, and projects to vocabulary logits.
+    Takes a single fused sequence of [byte_values | assembly_token_indices],
+    predicts the next assembly token at each position using causal attention.
+
+    The byte portion is embedded via a 256-entry byte embedding table;
+    the token portion via the assembly vocabulary embedding table.
+    Loss is only computed on token positions (byte positions are masked).
     """
 
     def __init__(self, d_model=256, num_heads=8, num_layers=6, ff_dim=1024,
@@ -137,31 +170,38 @@ class Disassembler(keras.Model):
         self.vocab_size = vocab_size
         self.params = params
 
-        # Embeddings
-        self.byte_embedding = keras.layers.Embedding(256, self.d_model)
-        self.token_embedding = keras.layers.Embedding(vocab_size, self.d_model)
+        # Fused embedding: byte values for first x_seq_len positions,
+        # token indices for the rest.
+        self.fused_embed = FusedEmbedding(
+            self.x_seq_len, self.d_model, vocab_size, name='fused_embed'
+        )
 
-        # Positional encoding (non-trainable)
+        # Positional encoding (non-trainable).
         pos_enc = sinusoidal_position_encoding(self.max_seq_len, self.d_model)
         self.pos_encoding = tf.Variable(pos_enc, trainable=False, name='pos_encoding')
 
-        # Transformer decoder blocks
+        # Transformer decoder blocks.
         self.decoder_blocks = [
-            TransformerDecoderBlock(self.d_model, params['num_heads'], params['ff_dim'], params['dropout'])
+            TransformerDecoderBlock(self.d_model, params['num_heads'],
+                                    params['ff_dim'], params['dropout'])
             for _ in range(params['num_layers'])
         ]
 
-        # Output projection
-        self.output_projection = keras.layers.Dense(vocab_size)
+        # Output projection to vocabulary.
+        self.output_projection = keras.layers.Dense(vocab_size, name='output_projection')
 
         self._compile_model()
 
     def call(self, inputs, training=False):
-        byte_indices, token_indices = inputs
-        byte_emb = self.byte_embedding(byte_indices)
-        tok_emb = self.token_embedding(token_indices)
-        seq_len = tf.shape(byte_emb)[1] + tf.shape(tok_emb)[1]
-        x = tf.concat([byte_emb, tok_emb], axis=1)
+        """Forward pass.
+
+        :param inputs: Fused sequence (batch, total_seq_len) of ints.
+                        First x_seq_len positions are byte values (0-255),
+                        remaining positions are assembly token indices.
+        :returns: Logits (batch, total_seq_len, vocab_size).
+        """
+        x = self.fused_embed(inputs)
+        seq_len = tf.shape(x)[1]
         x = x + self.pos_encoding[:, :seq_len, :]
 
         for block in self.decoder_blocks:
@@ -172,7 +212,7 @@ class Disassembler(keras.Model):
     def infer(self, X, max_tokens=None):
         """Autoregressive greedy decoding.
 
-        :param X: Byte indices, shape (1, x_seq_len).
+        :param X: Byte values, shape (x_seq_len,) or (1, x_seq_len).
         :param max_tokens: Maximum tokens to generate (default: y_seq_len).
         :returns: Decoded assembly string.
         """
@@ -184,32 +224,44 @@ class Disassembler(keras.Model):
         if X.shape.rank == 1:
             X = X[tf.newaxis, :]
 
-        byte_emb = self.byte_embedding(X)
+        x_len = tf.shape(X)[1]
+        # Pad byte portion to x_seq_len if needed.
+        if x_len < self.x_seq_len:
+            pad = tf.zeros((1, self.x_seq_len - x_len), dtype=tf.int32)
+            X = tf.concat([X, pad], axis=1)
 
-        token_ids = [START_IDX]
-        token_tensor = tf.convert_to_tensor([token_ids], dtype=tf.int32)
+        # Start sequence: byte values + START token.
+        token_ids = tf.convert_to_tensor([[START_IDX]], dtype=tf.int32)
+        seq = tf.concat([X, token_ids], axis=1)
 
         for _ in range(max_tokens):
-            tok_emb = self.token_embedding(token_tensor)
-            seq_len = tf.shape(byte_emb)[1] + tf.shape(tok_emb)[1]
-            x = tf.concat([byte_emb, tok_emb], axis=1)
+            # Truncate if too long.
+            if tf.shape(seq)[1] > self.max_seq_len:
+                seq = seq[:, -self.max_seq_len:]
+
+            # Cache byte embeddings since they never change.
+            x = self.fused_embed(seq)
+            seq_len = tf.shape(x)[1]
             x = x + self.pos_encoding[:, :seq_len, :]
 
             for block in self.decoder_blocks:
                 x = block(x, training=False)
 
             logits = self.output_projection(x)
-            next_token = tf.argmax(logits[0, -1, :]).numpy()
-            token_ids.append(int(next_token))
-            token_tensor = tf.convert_to_tensor([token_ids], dtype=tf.int32)
+            next_token = tf.argmax(logits[0, -1, :])
+            next_token_id = tf.cast(next_token, tf.int32)
 
-            if next_token == END_IDX:
+            seq = tf.concat([seq, next_token_id[tf.newaxis, tf.newaxis]], axis=1)
+
+            if next_token_id == END_IDX:
                 break
 
-        return self._detokenize(token_ids)
+        # Extract just the token portion for decoding.
+        token_ids = seq[0, self.x_seq_len:]
+        return self._detokenize(token_ids.numpy().tolist())
 
     def _detokenize(self, token_ids):
-        """Convert token indices back to assembly text."""
+        """Convert token indices to assembly text."""
         idx_to_char = {i + 4: chr(i) for i in range(128)}
         idx_to_char[START_IDX] = '\t'
         idx_to_char[END_IDX] = '\n'
@@ -240,4 +292,5 @@ class Disassembler(keras.Model):
 CUSTOM_OBJECTS = {
     'Disassembler': Disassembler,
     'TransformerDecoderBlock': TransformerDecoderBlock,
+    'FusedEmbedding': FusedEmbedding,
 }

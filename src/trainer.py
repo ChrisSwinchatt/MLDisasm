@@ -30,21 +30,8 @@ import tensorflow as tf
 
 from mldisasm.io.codec        import AssemblyTokenizer, ByteIndexer
 from mldisasm.io.file_manager import FileManager
-from mldisasm.training        import train_model
+from mldisasm.training        import train_model, make_dataset
 from mldisasm.util            import log, prof
-
-
-def batch_train(config, params, file_mgr, model_name, codecs):
-    """Train a model in batches."""
-    model = None
-    for X, y in file_mgr.yield_training(
-        model_name, codecs,
-        batch_size=config['max_records'] // 10,
-        max_records=config['max_records']
-    ):
-        with prof('Trained batch'):
-            model, _, _ = train_model(X, y, params, retrain=model)
-    return model
 
 
 def read_command_line():
@@ -65,7 +52,14 @@ if __name__ == '__main__':
         params  = config['model']
         x_codec = ByteIndexer(params['x_seq_len'])
         y_codec = AssemblyTokenizer(params['y_seq_len'])
-        model = batch_train(config, params, file_mgr, model_name, (x_codec, y_codec))
+
+        # Load all training data (up to max_records) and train with Dataset pipeline.
+        X, y = file_mgr.load_training(
+            model_name, (x_codec, y_codec), max_records=config['max_records']
+        )
+        with prof('Trained model'):
+            model, acc, loss = train_model(X, y, params)
+        log.info(f'Final accuracy: {acc * 100:.2f}%, loss: {loss:.4f}')
         model.save_weights(file_mgr.qualify_model(model_name))
     except Exception as e:
         log.debug('====================[ UNCAUGHT EXCEPTION ]====================')
