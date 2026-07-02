@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-# Copyright (C) 2018,2021 Chris Swinchatt
+# Copyright (C) 2018,2021,2026 Chris Swinchatt
 #
 # MLDisasm is free software: you can redistribute it and/or modify it
 # under the terms of the GNU Affero General Public License as published by
