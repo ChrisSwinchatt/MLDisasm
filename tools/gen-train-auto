@@ -108,7 +108,4 @@ function gen_file_list {
 [[ ! -f "${file_list}" ]] && ( gen_file_list | sort -u >"${file_list}" )
 
 # Disassemble, tokenise and process each file.
-cat "${file_list}" | "${gen_train_set}" "${disasm}" <"${file_list}" | sort -u | tee "${training_file}" | ${tokenize} >>"${token_file}"
-
-# Preprocess the training set.
-"${python}" "src/preprocessor.py" "${model_name}"
+"${gen_train_set}" "${disasm}" <"${file_list}" | sort -u | tee "${training_file}" | ${tokenize} >"${token_file}"

@@ -55,12 +55,8 @@ if __name__ == '__main__':
         # Break into opcode and disassembly.
         elems = line.split('|')
         if len(elems) != 2:
-            print('{}: Warning: {}: Expected 2 columns, got {}'.format(
-                sys.argv[0],
-                line_num,
-                len(elems),
-                file=sys.stderr
-            ))
+            print(f'{sys.argv[0]}: Warning: {line_num}: Expected 2 columns, got {len(elems)}',
+                  file=sys.stderr)
             continue
         disasm = elems[1]
         # Break disassembly into instruction and arguments.
