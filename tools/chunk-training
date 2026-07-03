@@ -1,0 +1,87 @@
+#!/usr/bin/env python3
+
+# Copyright (C) 2018,2021,2026 Chris Swinchatt
+#
+# MLDisasm is free software: you can redistribute it and/or modify it
+# under the terms of the GNU Affero General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or (at your
+# option) any later version.
+#
+# MLDisasm is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with MLDisasm.  If not, see <http://www.gnu.org/licenses/>.
+
+"""Group consecutive disassembly lines into large training blocks.
+
+Reads opcode|disasm CSV lines from stdin, groups consecutive instructions
+into blocks of approximately CHUNK_BYTES bytes each, and outputs JSON Lines
+with the accumulated opcode and disassembly text.
+
+Usage: {0} [chunk_bytes] < training.csv > training.jsonl
+"""
+
+import json
+import sys
+
+CHUNK_BYTES = 4096
+
+
+def emit(opcode, disasm):
+    """Write one chunk as a JSON line."""
+    record = {"opcode": opcode, "disasm": disasm}
+    print(json.dumps(record, ensure_ascii=False))
+
+
+def main():
+    chunk_bytes = CHUNK_BYTES
+    if len(sys.argv) > 1:
+        chunk_bytes = int(sys.argv[1])
+
+    acc_opcode = ""
+    acc_disasm = ""
+    total_blocks = 0
+    total_lines = 0
+
+    for line in sys.stdin:
+        line = line.strip()
+        if not line:
+            # Blank line = binary boundary. Emit current block and reset.
+            if acc_opcode:
+                emit(acc_opcode, acc_disasm)
+                total_blocks += 1
+                acc_opcode = ""
+                acc_disasm = ""
+            continue
+
+        if "|" not in line:
+            continue
+
+        opcode, disasm = line.split("|", 1)
+        acc_opcode += opcode
+        acc_disasm += disasm
+        total_lines += 1
+
+        if len(acc_opcode) // 2 >= chunk_bytes:
+            emit(acc_opcode, acc_disasm)
+            total_blocks += 1
+            acc_opcode = ""
+            acc_disasm = ""
+
+    # Emit final partial block.
+    if acc_opcode:
+        emit(acc_opcode, acc_disasm)
+        total_blocks += 1
+
+    print(
+        f"{sys.argv[0]}: {total_lines} instructions → {total_blocks} blocks "
+        f"(target {chunk_bytes} bytes/block)",
+        file=sys.stderr,
+    )
+
+
+if __name__ == "__main__":
+    main()

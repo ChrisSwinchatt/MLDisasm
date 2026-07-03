@@ -265,59 +265,46 @@ class FileManager:
     _log_name          = 'mldisasm.log'     # Log filename.
     _config_name       = 'config.json'      # Config filename.
     _model_name        = 'model.h5'         # Model filename.
-    _training_name     = 'training.csv'     # Preprocessed training set filename.
+    _training_name     = 'training.jsonl'   # Preprocessed training set filename.
     _validation_name   = 'validation.csv'   # Validation training set filename.
 
 
 def _do_load_training(file, codecs, block_size, max_records):
-    """Load grouped instruction blocks for autoregressive training.
+    """Load pre-chunked training blocks from a JSON Lines file.
 
-    Groups consecutive instructions from the CSV into blocks of
-    approximately x_codec.seq_len bytes each, so each training sample
-    fills the model's context window with real instruction data.
+    Each line is a JSON object: {"opcode": "<hex>", "disasm": "<text>"}
+    produced by tools/chunk-training. Blocks are already sized to fill
+    the model's context window.
 
     :returns: A tuple of ((byte_indices, token_indices), token_indices) or None if EOF.
     """
     x_codec, y_codec = codecs
-    chunk_bytes = x_codec.seq_len
     records = []
 
     data = ''
     while True:
-        block = file.read(block_size)
-        if not block:
+        chunk = file.read(block_size)
+        if not chunk:
             break
-        data += block
+        data += chunk
     if not data:
         return None
 
     lines = data.split('\n')
-    acc_opcode = ''
-    acc_disasm = ''
-
     for line in lines:
-        if not line or '|' not in line:
+        line = line.strip()
+        if not line:
             continue
-        opcode, disasm = line.split('|', 1)
-        acc_opcode += opcode
-        acc_disasm += disasm
-
-        if len(acc_opcode) // 2 >= chunk_bytes:
-            records.append((
-                x_codec.encode(acc_opcode, as_tensor=False),
-                y_codec.encode(acc_disasm, as_tensor=False),
-            ))
-            acc_opcode = ''
-            acc_disasm = ''
-            if max_records is not None and len(records) >= max_records:
-                break
-
-    # Emit final partial block if it has at least one instruction.
-    if acc_opcode and (max_records is None or len(records) < max_records):
+        try:
+            rec = json.loads(line)
+        except json.JSONDecodeError:
+            continue
         records.append((
-            x_codec.encode(acc_opcode, as_tensor=False),
-            y_codec.encode(acc_disasm, as_tensor=False),
+            x_codec.encode(rec['opcode'], as_tensor=False),
+            y_codec.encode(rec['disasm'], as_tensor=False),
         ))
+        if max_records is not None and len(records) >= max_records:
+            break
 
     if not records:
         return None

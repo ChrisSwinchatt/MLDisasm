@@ -41,12 +41,14 @@ if [[ ! -x $(which "${python}") ]]; then
 fi
 
 gen_train_set="${here}/gen-train-set"
+chunk_training="${here}/chunk-training"
 tokenize="${here}/tokenize"
 
 data_prefix="$(pwd)/data"
 file_list="${data_prefix}/files.list"
 model_prefix="${data_prefix}/${model_name}"
-training_file="${model_prefix}/training.csv"
+raw_csv="${model_prefix}/raw.csv"
+training_file="${model_prefix}/training.jsonl"
 token_file="${model_prefix}/tokens.list"
 
 bin_path="/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin"
@@ -107,5 +109,9 @@ function gen_file_list {
 # Generate the file list if it doesn't exist. Filter out non-unique paths.
 [[ ! -f "${file_list}" ]] && ( gen_file_list | sort -u >"${file_list}" )
 
-# Disassemble, tokenise and process each file.
-"${gen_train_set}" "${disasm}" <"${file_list}" | sort -u | tee "${training_file}" | ${tokenize} >"${token_file}"
+# Stage 1: Disassemble each binary into raw instruction CSV (one line per instruction,
+# kept in binary order so consecutive instructions are contiguous).
+"${gen_train_set}" "${disasm}" <"${file_list}" | tee "${raw_csv}" | ${tokenize} >"${token_file}"
+
+# Stage 2: Chunk consecutive instructions into large blocks for autoregressive training.
+"${python}" "${chunk_training}" <"${raw_csv}" >"${training_file}"

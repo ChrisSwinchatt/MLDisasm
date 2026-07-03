@@ -36,4 +36,5 @@ fi
 while read path; do
     echo "${name}: ${path}" >&2
     "${here}/get-disasm" "$1" "$path"
+    echo ""
 done
