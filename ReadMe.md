@@ -266,4 +266,4 @@ python3 src/bench-runner.py
 
 ## License
 
-The program is licensed under the terms of the MIT license. See the file `COPYING` for details.
+The program is licensed under the terms of the GNU Affero General Public License. See the file `LICENSE.md` for details.
