@@ -1,0 +1,12 @@
+# Core dependencies
+tensorflow>=2.15
+numpy
+
+# Optional but recommended (included for full functionality)
+colorama
+psutil
+ujson
+
+# Development
+pytest
+matplotlib
