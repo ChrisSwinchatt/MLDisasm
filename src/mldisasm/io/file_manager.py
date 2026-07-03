@@ -270,32 +270,59 @@ class FileManager:
 
 
 def _do_load_training(file, codecs, block_size, max_records):
-    """
-    Load up to `max_records` from `file` using blocks of `block_size` bytes.
+    """Load grouped instruction blocks for autoregressive training.
+
+    Groups consecutive instructions from the CSV into blocks of
+    approximately x_codec.seq_len bytes each, so each training sample
+    fills the model's context window with real instruction data.
+
     :returns: A tuple of ((byte_indices, token_indices), token_indices) or None if EOF.
     """
-    with prof('Loaded batch ({} records)', lambda: num_lines):
-        num_lines = 0
-        x_codec, y_codec = codecs
-        file_pos = file.tell()
-        data = ''
-        while data.count('\n') <= max_records:
-            block = file.read(block_size)
-            if not block:
+    x_codec, y_codec = codecs
+    chunk_bytes = x_codec.seq_len
+    records = []
+
+    data = ''
+    while True:
+        block = file.read(block_size)
+        if not block:
+            break
+        data += block
+    if not data:
+        return None
+
+    lines = data.split('\n')
+    acc_opcode = ''
+    acc_disasm = ''
+
+    for line in lines:
+        if not line or '|' not in line:
+            continue
+        opcode, disasm = line.split('|', 1)
+        acc_opcode += opcode
+        acc_disasm += disasm
+
+        if len(acc_opcode) // 2 >= chunk_bytes:
+            records.append((
+                x_codec.encode(acc_opcode, as_tensor=False),
+                y_codec.encode(acc_disasm, as_tensor=False),
+            ))
+            acc_opcode = ''
+            acc_disasm = ''
+            if max_records is not None and len(records) >= max_records:
                 break
-            data += block
-        if not data:
-            return None
-        lines = data.split('\n')
-        num_lines = min(len(lines), max_records)
-        X_bytes = [None] * num_lines
-        X_tokens = [None] * num_lines
-        len_bytes = 0
-        for i in range(num_lines):
-            len_bytes += len(lines[i]) + 1
-            opcode, disasm = lines[i].split('|')
-            X_bytes[i] = x_codec.encode(opcode, as_tensor=False)
-            X_tokens[i] = y_codec.encode(disasm, as_tensor=False)
-        file.seek(file_pos + len_bytes)
-        X = (tf.convert_to_tensor(X_bytes), tf.convert_to_tensor(X_tokens))
-        return X, tf.convert_to_tensor(X_tokens)
+
+    # Emit final partial block if it has at least one instruction.
+    if acc_opcode and (max_records is None or len(records) < max_records):
+        records.append((
+            x_codec.encode(acc_opcode, as_tensor=False),
+            y_codec.encode(acc_disasm, as_tensor=False),
+        ))
+
+    if not records:
+        return None
+
+    with prof('Loaded batch ({} blocks)', lambda: len(records)):
+        X_bytes, X_tokens = zip(*records)
+        X = (tf.convert_to_tensor(list(X_bytes)), tf.convert_to_tensor(list(X_tokens)))
+        return X, tf.convert_to_tensor(list(X_tokens))
