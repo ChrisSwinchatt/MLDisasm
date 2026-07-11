@@ -25,11 +25,10 @@ import traceback as tb
 
 import numpy as np
 
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '1'
 if __name__ == '__main__':
     print('*** Starting up...')
 
-import tensorflow as tf
+import torch
 
 from mldisasm.io.codec        import AssemblyTokenizer, ByteIndexer
 from mldisasm.io.file_manager import FileManager
@@ -95,7 +94,6 @@ def read_command_line():
 
 if __name__ == '__main__':
     model_name = read_command_line()
-    tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.INFO)
     file_mgr = FileManager()
     log.init(file_mgr.open_log())
     try:

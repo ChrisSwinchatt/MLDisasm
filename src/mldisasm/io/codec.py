@@ -20,7 +20,7 @@ MLDisasm encoding and decoding with tokenization.
 """
 
 import numpy as np
-import tensorflow as tf
+import torch
 
 from mldisasm.constants import ASCII_MAX, START_TOKEN, STOP_TOKEN
 
@@ -51,13 +51,13 @@ class ByteIndexer:
         indices = indices + [0] * pad_len
         result = np.array(indices, dtype=np.int32)
         if as_tensor:
-            return tf.convert_to_tensor(result, dtype=tf.int32)
+            return torch.tensor(result, dtype=torch.int32)
         return result
 
     def decode(self, tensor):
         """Decode integer indices back to bytes, skipping padding."""
-        if isinstance(tensor, tf.Tensor):
-            tensor = tensor.numpy()
+        if isinstance(tensor, torch.Tensor):
+            tensor = tensor.detach().cpu().numpy()
         return bytes(b for b in tensor if b != 0)
 
 
@@ -93,13 +93,13 @@ class AssemblyTokenizer:
         indices = indices + [PAD_IDX] * pad_len
         result = np.array(indices, dtype=np.int32)
         if as_tensor:
-            return tf.convert_to_tensor(result, dtype=tf.int32)
+            return torch.tensor(result, dtype=torch.int32)
         return result
 
     def decode(self, indices):
         """Convert integer indices back to assembly text."""
-        if isinstance(indices, tf.Tensor):
-            indices = indices.numpy()
+        if isinstance(indices, torch.Tensor):
+            indices = indices.detach().cpu().numpy()
         if indices.ndim > 1:
             return [self.decode(row) for row in indices]
         return ''.join(

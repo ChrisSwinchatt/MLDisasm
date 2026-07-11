@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 
 # Copyright (C) 2018,2021,2026 Chris Swinchatt
-# 
+#
 # MLDisasm is free software: you can redistribute it and/or modify it
 # under the terms of the GNU Affero General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or (at your
 # option) any later version.
-# 
+#
 # MLDisasm is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU Affero General Public License for more details.
-# 
+#
 # You should have received a copy of the GNU Affero General Public License
 # along with MLDisasm.  If not, see <http://www.gnu.org/licenses/>.
 
@@ -23,8 +23,7 @@ import os
 
 import numpy as np
 
-import tensorflow as tf
-from tensorflow import keras
+import torch
 
 try:
     import ujson as json
@@ -132,20 +131,24 @@ class FileManager:
         '''
         return self.qualify(name, FileManager._model_name)
 
-    def load_model(self, name):
+    def load_model(self, name, model):
         '''
-        Load a model.
+        Load model state dict into an existing model instance.
         :param name: The model name.
-        :returns: The loaded model.
+        :param model: A PyTorch nn.Module instance to load weights into.
+        :returns: The model with loaded weights.
         '''
-        return keras.models.load_model(self.qualify_model(name))
+        path = self.qualify_model(name)
+        state_dict = torch.load(path, map_location='cpu', weights_only=True)
+        model.load_state_dict(state_dict)
+        return model
 
     def save_model(self, model, name):
         '''
-        Save a model.
-        :param model: The model to save.
+        Save a model's state dict.
+        :param model: The PyTorch nn.Module to save.
         '''
-        model.save(self.qualify_model(name), overwrite=True)
+        torch.save(model.state_dict(), self.qualify_model(name))
 
     ############################################################################
     # TRAINING                                                                 #
@@ -264,7 +267,7 @@ class FileManager:
     ############################################################################
     _log_name          = 'mldisasm.log'     # Log filename.
     _config_name       = 'config.json'      # Config filename.
-    _model_name        = 'model.h5'         # Model filename.
+    _model_name        = 'model.pt'         # Model filename (.pt for PyTorch).
     _training_name     = 'training.jsonl'   # Preprocessed training set filename.
     _validation_name   = 'validation.csv'   # Validation training set filename.
 
@@ -311,5 +314,5 @@ def _do_load_training(file, codecs, block_size, max_records):
 
     with prof('Loaded batch ({} blocks)', lambda: len(records)):
         X_bytes, X_tokens = zip(*records)
-        X = (tf.convert_to_tensor(list(X_bytes)), tf.convert_to_tensor(list(X_tokens)))
-        return X, tf.convert_to_tensor(list(X_tokens))
+        X = (torch.tensor(list(X_bytes)), torch.tensor(list(X_tokens)))
+        return X, torch.tensor(list(X_tokens))

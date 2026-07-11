@@ -25,11 +25,6 @@ import sys
 
 if __name__ == '__main__':
     print('*** Starting up...')
-    os.environ['TF_CPP_MIN_LOG_LEVEL'] = '1'
-
-import tensorflow as tf
-
-tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.INFO)
 
 from mldisasm.io.codec        import AssemblyTokenizer, ByteIndexer
 from mldisasm.io.file_manager import FileManager
@@ -47,7 +42,7 @@ if __name__ == '__main__':
     y_codec  = AssemblyTokenizer(config['model']['y_seq_len'])
 
     model = Disassembler(**config['model'])
-    model.load_weights(file_mgr.qualify_model(model_name))
+    file_mgr.load_model(model_name, model)
 
     sample = 0
     for X, y_true in file_mgr.yield_validation(model_name, (x_codec, y_codec)):

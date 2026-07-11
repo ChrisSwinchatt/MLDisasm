@@ -1,5 +1,5 @@
 # Core dependencies
-tensorflow>=2.15
+torch>=2.0
 numpy
 
 # Optional but recommended (included for full functionality)

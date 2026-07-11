@@ -23,11 +23,11 @@ A decoder-only transformer trained like an LLM: takes a fused sequence of
 position, with causal self-attention and loss masked on byte positions.
 """
 
-import inspect
+import math
 
 import numpy as np
-import tensorflow as tf
-from tensorflow import keras
+import torch
+import torch.nn as nn
 
 from mldisasm.constants import START_IDX, END_IDX, PAD_IDX, ASSEMBLY_VOCAB_SIZE
 
@@ -59,80 +59,129 @@ def _make_params(**kwargs):
 
 def sinusoidal_position_encoding(max_len, d_model):
     """Sinusoidal positional encoding, shape (1, max_len, d_model)."""
-    positions = tf.range(max_len, dtype=tf.float32)[:, tf.newaxis]
-    dims = tf.range(d_model, dtype=tf.float32)[tf.newaxis, :]
-    angles = positions / tf.pow(10000.0, 2 * (dims // 2) / d_model)
-    even = tf.sin(angles[:, 0::2])
-    odd = tf.cos(angles[:, 1::2])
-    encoding = tf.reshape(tf.stack([even, odd], axis=-1), [max_len, d_model])
-    return encoding[tf.newaxis, :, :]
+    position = torch.arange(max_len, dtype=torch.float32).unsqueeze(1)
+    dims = torch.arange(d_model, dtype=torch.float32).unsqueeze(0)
+    angles = position / torch.pow(10000.0, 2 * (dims // 2) / d_model)
+    even = torch.sin(angles[:, 0::2])
+    odd = torch.cos(angles[:, 1::2])
+    encoding = torch.stack([even, odd], dim=-1).reshape(max_len, d_model)
+    return encoding.unsqueeze(0)
 
 
-class FusedEmbedding(keras.layers.Layer):
+class FusedEmbedding(nn.Module):
     """Embeds a fused [bytes|tokens] sequence.
 
     Positions 0..x_seq_len-1 are byte values (0-255) embedded via byte_embed.
     Positions x_seq_len..end are token indices embedded via token_embed.
     """
 
-    def __init__(self, x_seq_len, d_model, vocab_size, **kwargs):
-        super().__init__(**kwargs)
+    def __init__(self, x_seq_len, d_model, vocab_size):
+        super().__init__()
         self.x_seq_len = x_seq_len
-        self.byte_embed = keras.layers.Embedding(256, d_model, name='byte_embedding')
-        self.token_embed = keras.layers.Embedding(vocab_size, d_model, name='token_embedding')
+        self.byte_embed = nn.Embedding(256, d_model)
+        self.token_embed = nn.Embedding(vocab_size, d_model)
 
-    def call(self, inputs):
-        seq_ids = inputs  # (batch, total_seq_len)
-        batch_size = tf.shape(seq_ids)[0]
-        total_len = tf.shape(seq_ids)[1]
+    def forward(self, seq_ids):
+        """seq_ids: (batch, total_seq_len) int tensor."""
+        batch_size = seq_ids.shape[0]
+        total_len = seq_ids.shape[1]
 
-        # Split the sequence into byte and token portions.
-        x_len = tf.minimum(self.x_seq_len, total_len)
+        x_len = min(self.x_seq_len, total_len)
         byte_part = seq_ids[:, :x_len]
         token_part = seq_ids[:, x_len:]
 
-        byte_emb = self.byte_embed(byte_part)    # (batch, x_len, d_model)
-        tok_emb = self.token_embed(token_part)   # (batch, y_len, d_model)
+        byte_emb = self.byte_embed(byte_part)
+        tok_emb = self.token_embed(token_part)
 
-        return tf.concat([byte_emb, tok_emb], axis=1)
+        return torch.cat([byte_emb, tok_emb], dim=1)
 
 
-class TransformerDecoderBlock(keras.layers.Layer):
-    """Transformer decoder block with causal self-attention."""
+class TransformerDecoderBlock(nn.Module):
+    """Transformer decoder block with causal self-attention.
 
-    def __init__(self, d_model, num_heads, ff_dim, dropout=0.1, **kwargs):
-        super().__init__(**kwargs)
+    Uses manual multi-head attention (explicit Q/K/V/O Linear projections)
+    for transparent weight mapping and parity-verifiable behavior.
+    """
+
+    def __init__(self, d_model, num_heads, ff_dim, dropout=0.1):
+        super().__init__()
         self.d_model = d_model
         self.num_heads = num_heads
-        self.ff_dim = ff_dim
-        self.dropout_rate = dropout
+        self.head_dim = d_model // num_heads
+        self.scale = self.head_dim ** 0.5
 
-    def build(self, input_shape):
-        self.attn = keras.layers.MultiHeadAttention(
-            num_heads=self.num_heads, key_dim=self.d_model // self.num_heads,
-            dropout=self.dropout_rate
+        # Multi-head attention projections.
+        # Weight layout: nn.Linear(in, out) has weight (out, in).
+        # Each is equivalent to a Keras Dense(in, out) with transposed weight.
+        self.W_q = nn.Linear(d_model, d_model)
+        self.W_k = nn.Linear(d_model, d_model)
+        self.W_v = nn.Linear(d_model, d_model)
+        self.W_o = nn.Linear(d_model, d_model)
+
+        # Feed-forward network.
+        self.ffn = nn.Sequential(
+            nn.Linear(d_model, ff_dim),
+            nn.GELU(),
+            nn.Linear(ff_dim, d_model),
         )
-        self.ffn = keras.Sequential([
-            keras.layers.Dense(self.ff_dim, activation='gelu'),
-            keras.layers.Dense(self.d_model),
-        ])
-        self.layernorm1 = keras.layers.LayerNormalization(epsilon=1e-6)
-        self.layernorm2 = keras.layers.LayerNormalization(epsilon=1e-6)
-        self.dropout1 = keras.layers.Dropout(self.dropout_rate)
-        self.dropout2 = keras.layers.Dropout(self.dropout_rate)
 
-    def call(self, x, training=False):
-        seq_len = tf.shape(x)[1]
-        causal_mask = tf.linalg.band_part(tf.ones((seq_len, seq_len)), -1, -1)
-        causal_mask = tf.cast(causal_mask, tf.bool)
-        attn_out = self.attn(x, x, attention_mask=causal_mask, training=training)
-        x = self.layernorm1(x + self.dropout1(attn_out, training=training))
+        # LayerNorm: Keras default epsilon is 1e-6 (PyTorch default is 1e-5).
+        self.layernorm1 = nn.LayerNorm(d_model, eps=1e-6)
+        self.layernorm2 = nn.LayerNorm(d_model, eps=1e-6)
+
+        self.dropout_rate = dropout
+        self.dropout_attn = nn.Dropout(dropout)   # attention weights
+        self.dropout1 = nn.Dropout(dropout)         # MHA output
+        self.dropout2 = nn.Dropout(dropout)         # FFN output
+
+    def forward(self, x):
+        batch_size, seq_len, _ = x.shape
+        d_model = self.d_model
+        h = self.num_heads
+        d_k = self.head_dim
+
+        # Linear projections.
+        q = self.W_q(x)  # (batch, seq, d_model)
+        k = self.W_k(x)
+        v = self.W_v(x)
+
+        # Reshape to (batch, num_heads, seq, head_dim).
+        q = q.view(batch_size, seq_len, h, d_k).transpose(1, 2)
+        k = k.view(batch_size, seq_len, h, d_k).transpose(1, 2)
+        v = v.view(batch_size, seq_len, h, d_k).transpose(1, 2)
+
+        # Scaled dot-product attention.
+        scores = (q @ k.transpose(-2, -1)) / self.scale
+
+        # Causal mask: lower-triangular, -inf for future positions.
+        # Keras equivalent: tf.linalg.band_part(ones, -1, -1) as bool mask
+        # where True=attend. PyTorch uses additive float mask.
+        causal_mask = torch.triu(
+            torch.full((seq_len, seq_len), float('-inf'), device=x.device),
+            diagonal=1
+        )
+        scores = scores + causal_mask
+
+        attn_weights = torch.softmax(scores, dim=-1)
+        attn_weights = self.dropout_attn(attn_weights)
+
+        attn_out = attn_weights @ v  # (batch, num_heads, seq, head_dim)
+
+        # Reshape back: (batch, num_heads, seq, head_dim) → (batch, seq, d_model).
+        attn_out = attn_out.transpose(1, 2).contiguous().view(batch_size, seq_len, d_model)
+        attn_out = self.W_o(attn_out)
+
+        # Residual + norm.
+        x = self.layernorm1(x + self.dropout1(attn_out))
+
+        # Feed-forward.
         ffn_out = self.ffn(x)
-        x = self.layernorm2(x + self.dropout2(ffn_out, training=training))
+        x = self.layernorm2(x + self.dropout2(ffn_out))
+
         return x
 
 
-class Disassembler(keras.Model):
+class Disassembler(nn.Module):
     """Decoder-only transformer for disassembly, trained like an LLM.
 
     Takes a single fused sequence of [byte_values | assembly_token_indices],
@@ -161,7 +210,7 @@ class Disassembler(keras.Model):
             mask_value=mask_value, **kwargs
         )
 
-        super().__init__(name='disassembler')
+        super().__init__()
 
         self.d_model = params['d_model']
         self.x_seq_len = params['x_seq_len']
@@ -173,26 +222,27 @@ class Disassembler(keras.Model):
         # Fused embedding: byte values for first x_seq_len positions,
         # token indices for the rest.
         self.fused_embed = FusedEmbedding(
-            self.x_seq_len, self.d_model, vocab_size, name='fused_embed'
+            self.x_seq_len, self.d_model, vocab_size
         )
 
-        # Positional encoding (non-trainable).
+        # Positional encoding (non-trainable buffer).
         pos_enc = sinusoidal_position_encoding(self.max_seq_len, self.d_model)
-        self.pos_encoding = tf.Variable(pos_enc, trainable=False, name='pos_encoding')
+        self.register_buffer('pos_encoding', pos_enc)
 
         # Transformer decoder blocks.
-        self.decoder_blocks = [
+        self.decoder_blocks = nn.ModuleList([
             TransformerDecoderBlock(self.d_model, params['num_heads'],
                                     params['ff_dim'], params['dropout'])
             for _ in range(params['num_layers'])
-        ]
+        ])
 
         # Output projection to vocabulary.
-        self.output_projection = keras.layers.Dense(vocab_size, name='output_projection')
+        # Keras Dense(vocab_size) weight shape (d_model, vocab_size).
+        # PyTorch nn.Linear(d_model, vocab_size) weight shape (vocab_size, d_model).
+        # During weight porting: transpose the Keras weight.
+        self.output_projection = nn.Linear(d_model, vocab_size)
 
-        self._compile_model()
-
-    def call(self, inputs, training=False):
+    def forward(self, inputs):
         """Forward pass.
 
         :param inputs: Fused sequence (batch, total_seq_len) of ints.
@@ -201,14 +251,15 @@ class Disassembler(keras.Model):
         :returns: Logits (batch, total_seq_len, vocab_size).
         """
         x = self.fused_embed(inputs)
-        seq_len = tf.shape(x)[1]
+        seq_len = x.shape[1]
         x = x + self.pos_encoding[:, :seq_len, :]
 
         for block in self.decoder_blocks:
-            x = block(x, training=training)
+            x = block(x)
 
         return self.output_projection(x)
 
+    @torch.no_grad()
     def infer(self, X, max_tokens=None):
         """Autoregressive greedy decoding.
 
@@ -224,36 +275,36 @@ class Disassembler(keras.Model):
             max_tokens = self.y_seq_len
 
         if isinstance(X, np.ndarray):
-            X = tf.convert_to_tensor(X, dtype=tf.int32)
-        if X.shape.rank == 1:
-            X = X[tf.newaxis, :]
+            X = torch.from_numpy(X).to(dtype=torch.int32)
+        if X.dim() == 1:
+            X = X.unsqueeze(0)
 
-        x_len = tf.shape(X)[1]
+        x_len = X.shape[1]
         if x_len < self.x_seq_len:
-            pad = tf.zeros((1, self.x_seq_len - x_len), dtype=tf.int32)
-            X = tf.concat([X, pad], axis=1)
+            pad = torch.zeros((1, self.x_seq_len - x_len), dtype=torch.int32)
+            X = torch.cat([X, pad], dim=1)
 
         # Cache raw byte embeddings (no decoder block processing yet).
         cached_byte_emb = self.fused_embed.byte_embed(X)
 
         token_ids = [START_IDX]
-        token_tensor = tf.convert_to_tensor([token_ids], dtype=tf.int32)
+        token_tensor = torch.tensor([token_ids], dtype=torch.int32)
 
         for _ in range(max_tokens):
             tok_emb = self.fused_embed.token_embed(token_tensor)
-            x = tf.concat([cached_byte_emb, tok_emb], axis=1)
-            seq_len = tf.shape(x)[1]
+            x = torch.cat([cached_byte_emb, tok_emb], dim=1)
+            seq_len = x.shape[1]
             x = x + self.pos_encoding[:, :seq_len, :]
 
             for block in self.decoder_blocks:
-                x = block(x, training=False)
+                x = block(x)
 
             logits = self.output_projection(x)
-            next_token = tf.argmax(logits[0, -1, :])
-            next_token_id = tf.cast(next_token, tf.int32)
+            next_token = torch.argmax(logits[0, -1, :])
+            next_token_id = int(next_token.item())
 
-            token_ids.append(int(next_token_id))
-            token_tensor = tf.convert_to_tensor([token_ids], dtype=tf.int32)
+            token_ids.append(next_token_id)
+            token_tensor = torch.tensor([token_ids], dtype=torch.int32)
 
             if next_token_id == END_IDX:
                 break
@@ -270,27 +321,3 @@ class Disassembler(keras.Model):
             for t in token_ids
             if t != PAD_IDX
         )
-
-    def _compile_model(self):
-        optimizer = self.params['optimizer']
-        if isinstance(optimizer, str):
-            optimizer_cls = getattr(keras.optimizers, optimizer)
-            signature = inspect.signature(optimizer_cls)
-            filtered_params = {
-                k: v for k, v in self.params['opt_params'].items()
-                if k in signature.parameters
-            }
-            optimizer = optimizer_cls(**filtered_params)
-        loss = self.params.get('loss', 'sparse_categorical_crossentropy')
-        self.compile(
-            optimizer=optimizer,
-            loss=loss,
-            metrics=self.params['metrics']
-        )
-
-
-CUSTOM_OBJECTS = {
-    'Disassembler': Disassembler,
-    'TransformerDecoderBlock': TransformerDecoderBlock,
-    'FusedEmbedding': FusedEmbedding,
-}

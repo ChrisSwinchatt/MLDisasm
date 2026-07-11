@@ -23,13 +23,6 @@ from   abc import ABCMeta
 import sys
 import os
 
-os.environ['TF_CPP_MIN_LOG_LEVEL']  = '1'
-os.environ['TF_CPP_MIN_VLOG_LEVEL'] = '1'
-
-import tensorflow as tf
-
-tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.INFO)
-
 import numpy as np
 
 from mldisasm.constants       import ASCII_MAX, BYTE_MAX, BYTEORDER

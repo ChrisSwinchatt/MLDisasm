@@ -24,13 +24,12 @@ import traceback as tb
 
 if __name__ == '__main__':
     print('*** Starting up...')
-    os.environ['TF_CPP_MIN_LOG_LEVEL'] = '1'
 
-import tensorflow as tf
+import torch
 
 from mldisasm.io.codec        import AssemblyTokenizer, ByteIndexer
 from mldisasm.io.file_manager import FileManager
-from mldisasm.training        import train_model, make_dataset
+from mldisasm.training        import train_model
 from mldisasm.util            import log, prof
 
 
@@ -44,7 +43,6 @@ def read_command_line():
 
 if __name__ == '__main__':
     model_name = read_command_line()
-    tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.INFO)
     file_mgr = FileManager()
     log.init(file_mgr.open_log())
     try:
@@ -53,14 +51,14 @@ if __name__ == '__main__':
         x_codec = ByteIndexer(params['x_seq_len'])
         y_codec = AssemblyTokenizer(params['y_seq_len'])
 
-        # Load all training data (up to max_records) and train with Dataset pipeline.
+        # Load all training data (up to max_records) and train.
         X, y = file_mgr.load_training(
             model_name, (x_codec, y_codec), max_records=config['max_records']
         )
         with prof('Trained model'):
             model, acc, loss = train_model(X, y, params)
         log.info(f'Final accuracy: {acc * 100:.2f}%, loss: {loss:.4f}')
-        model.save_weights(file_mgr.qualify_model(model_name))
+        file_mgr.save_model(model, model_name)
     except Exception as e:
         log.debug('====================[ UNCAUGHT EXCEPTION ]====================')
         log.error(f"Uncaught exception '{type(e).__name__}': {str(e).split(chr(10))[0]}")

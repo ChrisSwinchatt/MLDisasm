@@ -13,7 +13,7 @@ authors = [
     { name = "Chris Swinchatt" }
 ]
 dependencies = [
-    "tensorflow>=2.15",
+    "torch>=2.0",
     "numpy",
 ]
 

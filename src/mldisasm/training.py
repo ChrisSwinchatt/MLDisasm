@@ -24,8 +24,9 @@ LLM-style autoregressive next-token prediction training.
 import random
 
 import numpy as np
-import tensorflow as tf
-from tensorflow import keras
+import torch
+import torch.nn as nn
+from torch.utils.data import Dataset, DataLoader, Subset
 
 from mldisasm.constants import ASSEMBLY_VOCAB_SIZE, PAD_IDX
 from mldisasm.model import Disassembler
@@ -71,65 +72,59 @@ def fuse_sequences(byte_indices, token_indices):
     :param token_indices: (batch, y_seq_len) assembly token indices.
     :returns: (batch, x_seq_len + y_seq_len) fused sequence.
     """
-    return tf.concat([byte_indices, token_indices], axis=1)
+    return torch.cat([byte_indices, token_indices], dim=1)
 
 
 def make_llm_targets(fused_seq, x_seq_len):
     """Create next-token prediction targets with byte position masking.
 
-    Shifts the full sequence right by 1 and masks byte positions with -100
-    so the loss ignores them.
+    Shifts the full sequence right by 1 and sets byte position targets to -100
+    (PyTorch CrossEntropyLoss ignore_index) so the loss ignores them.
 
     :param fused_seq: (batch, total_len) fused [bytes|tokens].
     :param x_seq_len: Number of byte positions.
-    :returns: (targets, sample_weight) each (batch, total_len).
+    :returns: targets (batch, total_len), byte positions set to -100.
     """
-    batch_size = tf.shape(fused_seq)[0]
-    total_len = tf.shape(fused_seq)[1]
-    y_len = total_len - x_seq_len
+    batch_size = fused_seq.shape[0]
+    total_len = fused_seq.shape[1]
 
     # Shift right: targets[i] = fused_seq[i+1], last target is PAD.
-    targets = tf.concat([
+    targets = torch.cat([
         fused_seq[:, 1:],
-        tf.fill([batch_size, 1], tf.cast(PAD_IDX, fused_seq.dtype))
-    ], axis=1)
+        torch.full((batch_size, 1), PAD_IDX, dtype=fused_seq.dtype)
+    ], dim=1)
 
-    # Mask: 0 for byte positions, 1 for token positions.
-    byte_mask = tf.zeros([batch_size, x_seq_len], dtype=tf.float32)
-    token_mask = tf.ones([batch_size, y_len], dtype=tf.float32)
-    sample_weight = tf.concat([byte_mask, token_mask], axis=1)
+    # Mask byte positions with ignore_index.
+    targets = targets.clone()
+    targets[:, :x_seq_len] = -100
 
-    return targets, sample_weight
-
-
-def make_dataset(X, y, x_seq_len, batch_size, shuffle=False):
-    """Create a tf.data.Dataset for LLM-style training.
-
-    :param X: Tuple of (byte_indices, token_indices).
-    :param y: Token indices (used for fused sequence construction).
-    :param x_seq_len: Number of byte positions.
-    :param batch_size: Batch size.
-    :param shuffle: Whether to shuffle.
-    :returns: A tf.data.Dataset yielding (fused_seq, targets, sample_weight).
-    """
-    byte_indices, token_indices = X
-    n = int(byte_indices.shape[0])
-
-    # Build fused sequences.
-    fused = fuse_sequences(byte_indices, token_indices)
-    targets, sample_weight = make_llm_targets(fused, x_seq_len)
-
-    ds = tf.data.Dataset.from_tensor_slices((fused, targets, sample_weight))
-
-    if shuffle:
-        ds = ds.shuffle(n)
-
-    ds = ds.batch(batch_size, drop_remainder=False)
-    ds = ds.prefetch(tf.data.AUTOTUNE)
-    return ds
+    return targets
 
 
-def train_model(X, y, params, train=None, test=None, retrain=None):
+class FusedSequenceDataset(Dataset):
+    """PyTorch Dataset yielding (fused_seq, targets) pairs for LLM training."""
+
+    def __init__(self, byte_indices, token_indices, x_seq_len):
+        self.fused = fuse_sequences(byte_indices, token_indices)
+        self.targets = make_llm_targets(self.fused, x_seq_len)
+
+    def __len__(self):
+        return len(self.fused)
+
+    def __getitem__(self, idx):
+        return self.fused[idx], self.targets[idx]
+
+
+def _compute_accuracy(logits, targets):
+    """Compute accuracy over token positions only (non-masked targets)."""
+    mask = targets != -100
+    pred = logits.argmax(dim=-1)
+    correct = (pred[mask] == targets[mask]).sum().item()
+    total = mask.sum().item()
+    return correct, total
+
+
+def train_model(X, y, params, train=None, test=None, retrain=None, device=None):
     """Train a model with LLM-style next-token prediction.
 
     :param X: Tuple of (byte_indices, token_indices).
@@ -138,69 +133,118 @@ def train_model(X, y, params, train=None, test=None, retrain=None):
     :param train: Training indices for CV, or None.
     :param test: Test indices for CV, or None.
     :param retrain: Existing model to continue training, or None.
+    :param device: torch device (auto-detected if None).
     :returns: (model, accuracy, loss).
     """
-    validation_data = None
-    x_seq_len = params['x_seq_len']
+    if device is None:
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-    # Build training dataset.
     byte_indices, token_indices = X
-    if train is not None and test is not None:
-        # Cross-validation split.
-        train_byte = tf.gather(byte_indices, train)
-        train_token = tf.gather(token_indices, train)
-        test_byte = tf.gather(byte_indices, test)
-        test_token = tf.gather(token_indices, test)
 
-        train_ds = make_dataset(
-            (train_byte, train_token), tf.gather(y, train),
-            x_seq_len, params['batch_size'], shuffle=True
-        )
-        val_ds = make_dataset(
-            (test_byte, test_token), tf.gather(y, test),
-            x_seq_len, params['batch_size'], shuffle=False
-        )
+    # Build dataset.
+    full_dataset = FusedSequenceDataset(byte_indices, token_indices, params['x_seq_len'])
+
+    if train is not None and test is not None:
+        train_ds = Subset(full_dataset, train)
+        val_ds = Subset(full_dataset, test)
+        train_loader = DataLoader(train_ds, batch_size=params['batch_size'], shuffle=True)
+        val_loader = DataLoader(val_ds, batch_size=params['batch_size'], shuffle=False)
     elif train is None and test is None:
-        train_ds = make_dataset(
-            (byte_indices, token_indices), y,
-            x_seq_len, params['batch_size'], shuffle=True
-        )
-        val_ds = None
+        train_loader = DataLoader(full_dataset, batch_size=params['batch_size'], shuffle=True)
+        val_loader = None
     else:
         raise ValueError('Either both or neither of train and test should be None')
 
     model = retrain
     if model is None:
         model = Disassembler(vocab_size=ASSEMBLY_VOCAB_SIZE, **params)
+    model.to(device)
+
+    # Optimizer: match Keras Adam defaults.
+    # Keras Adam: lr=0.001, beta_1=0.9, beta_2=0.999, epsilon=1e-7.
+    # Note: Keras places epsilon inside sqrt; PyTorch places it outside.
+    # This is a known non-equivalence (see residual differences doc).
+    opt_params = params.get('opt_params', {})
+    lr = opt_params.get('learning_rate', 0.001)
+    optimizer = torch.optim.Adam(
+        model.parameters(), lr=lr, betas=(0.9, 0.999), eps=1e-7
+    )
+
+    # Loss: sparse_categorical_crossentropy → CrossEntropyLoss with ignore_index.
+    # Byte position targets are set to -100 so they don't contribute to loss,
+    # equivalent to TF sample_weight=0 on byte positions.
+    criterion = nn.CrossEntropyLoss(ignore_index=-100)
 
     log.info(f'Training model with parameters {params}')
 
-    history = model.fit(
-        train_ds,
-        epochs=params['epochs'],
-        validation_data=val_ds,
-    )
+    history = {'loss': [], 'accuracy': [], 'val_loss': [], 'val_accuracy': []}
 
-    acc_key = 'val_accuracy' if val_ds is not None else 'accuracy'
-    loss_key = 'val_loss' if val_ds is not None else 'loss'
-    acc = history.history[acc_key][-1]
-    loss = history.history[loss_key][-1]
+    for epoch in range(params['epochs']):
+        # Training.
+        model.train()
+        epoch_loss = 0.0
+        epoch_correct = 0
+        epoch_token_total = 0
+        for fused_seq, targets in train_loader:
+            fused_seq = fused_seq.to(device)
+            targets = targets.to(device)
+
+            optimizer.zero_grad()
+            logits = model(fused_seq)
+            # CrossEntropyLoss expects (N, C, ...) i.e. (batch, vocab, seq).
+            loss = criterion(logits.permute(0, 2, 1), targets)
+            loss.backward()
+            optimizer.step()
+
+            epoch_loss += loss.item()
+            corr, tot = _compute_accuracy(logits, targets)
+            epoch_correct += corr
+            epoch_token_total += tot
+
+        avg_loss = epoch_loss / len(train_loader)
+        avg_acc = epoch_correct / max(epoch_token_total, 1)
+        history['loss'].append(avg_loss)
+        history['accuracy'].append(avg_acc)
+
+        # Validation.
+        if val_loader is not None:
+            model.eval()
+            val_loss = 0.0
+            val_correct = 0
+            val_token_total = 0
+            with torch.no_grad():
+                for fused_seq, targets in val_loader:
+                    fused_seq = fused_seq.to(device)
+                    targets = targets.to(device)
+                    logits = model(fused_seq)
+                    loss = criterion(logits.permute(0, 2, 1), targets)
+                    val_loss += loss.item()
+                    corr, tot = _compute_accuracy(logits, targets)
+                    val_correct += corr
+                    val_token_total += tot
+            history['val_loss'].append(val_loss / len(val_loader))
+            history['val_accuracy'].append(val_correct / max(val_token_total, 1))
+
+    acc_key = 'val_accuracy' if val_loader is not None else 'accuracy'
+    loss_key = 'val_loss' if val_loader is not None else 'loss'
+    acc = history[acc_key][-1]
+    loss = history[loss_key][-1]
     return model, acc, loss
 
 
-def _train_fold(X, y, params, train, test, fold_num):
+def _train_fold(X, y, params, train, test, fold_num, device=None):
     random.seed(1)
     np.random.seed(1)
-    tf.random.set_seed(1)
-    acc = -np.inf
-    loss = np.inf
+    torch.manual_seed(1)
+    acc = -float('inf')
+    loss = float('inf')
     with prof(
         'Fold {}/{}: acc={}%, loss={}', fold_num, params['kfolds'],
         lambda: acc * 100, lambda: loss,
         log_level='info',
         start_msg=f'Fold {fold_num}/{params["kfolds"]}'
     ):
-        _, acc, loss = train_model(X, y, params, train, test)
+        _, acc, loss = train_model(X, y, params, train, test, device=device)
         return acc, loss
 
 
@@ -208,12 +252,13 @@ def _running_average(value, sample, count):
     return value * (count - 1) / count + sample / count
 
 
-def kfolds_train(X, y, params):
+def kfolds_train(X, y, params, device=None):
     """Perform k-folds cross-validation training.
 
     :param X: Tuple of (byte_indices, token_indices).
     :param y: Token indices.
     :param params: Model parameters.
+    :param device: torch device.
     :returns: (average_accuracy, average_loss).
     """
     avg_acc = 0.0
@@ -221,7 +266,7 @@ def kfolds_train(X, y, params):
     fold_num = 1
     n_samples = int(X[0].shape[0])
     for train, test in kfolds(n_samples, params['kfolds'], params['shuffle']):
-        acc, loss = _train_fold(X, y, params, train, test, fold_num)
+        acc, loss = _train_fold(X, y, params, train, test, fold_num, device=device)
         avg_acc = _running_average(avg_acc, acc, fold_num)
         avg_loss = _running_average(avg_loss, loss, fold_num)
         fold_num += 1

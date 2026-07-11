@@ -30,9 +30,8 @@ import sys
 
 if __name__ == '__main__':
     print('*** Starting up...')
-    os.environ['TF_CPP_MIN_LOG_LEVEL'] = '1'
 
-import tensorflow as tf
+import torch
 
 from mldisasm.io.codec        import AssemblyTokenizer, ByteIndexer
 from mldisasm.io.file_manager import FileManager
@@ -45,7 +44,6 @@ if __name__ == '__main__':
         sys.exit(1)
     model_name = sys.argv[1]
     input_path = sys.argv[2]
-    tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.INFO)
 
     file_mgr = FileManager()
     config   = file_mgr.load_config(model_name)
@@ -53,7 +51,7 @@ if __name__ == '__main__':
     y_codec  = AssemblyTokenizer(config['model']['y_seq_len'])
 
     model = Disassembler(**config['model'])
-    model.load_weights(file_mgr.qualify_model(model_name))
+    file_mgr.load_model(model_name, model)
 
     with open(input_path, 'rb') as f:
         offset = 0
@@ -62,6 +60,6 @@ if __name__ == '__main__':
             if not buf:
                 break
             encoded = x_codec.encode(buf)
-            decoded = model.infer(tf.convert_to_tensor([encoded]))
+            decoded = model.infer(torch.tensor([encoded]))
             print(f'0x{offset:08x}:\t{buf.hex()}\t{decoded}')
             offset += len(buf)

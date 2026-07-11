@@ -23,7 +23,7 @@ import sys
 import traceback as tb
 
 import numpy as np
-import tensorflow as tf
+import torch
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '1'
 
@@ -51,7 +51,7 @@ def disassemble():
     file_mgr, config, x_codec, y_codec = _load_config(model_name)
 
     model = Disassembler(**config['model'])
-    model.load_weights(file_mgr.qualify_model(model_name))
+    file_mgr.load_model(model_name, model)
 
     with open(input_path, 'rb') as f:
         offset = 0
@@ -60,7 +60,7 @@ def disassemble():
             if not buf:
                 break
             encoded = x_codec.encode(buf)
-            decoded = model.infer(tf.convert_to_tensor([encoded]))
+            decoded = model.infer(torch.tensor([encoded]))
             print(f'0x{offset:08x}:\t{buf.hex()}\t{decoded}')
             offset += len(buf)
 
@@ -85,7 +85,7 @@ def train():
         )
         model, acc, loss = train_model(X, y, params)
         log.info(f'Final accuracy: {acc * 100:.2f}%, loss: {loss:.4f}')
-        model.save_weights(file_mgr.qualify_model(model_name))
+        file_mgr.save_model(model, model_name)
     except Exception as e:
         log.debug('=' * 20 + '[ UNCAUGHT EXCEPTION ]' + '=' * 20)
         log.error(f"Uncaught exception '{type(e).__name__}': {str(e).split(chr(10))[0]}")
@@ -177,7 +177,7 @@ def validate():
     file_mgr, config, x_codec, y_codec = _load_config(model_name)
 
     model = Disassembler(**config['model'])
-    model.load_weights(file_mgr.qualify_model(model_name))
+    file_mgr.load_model(model_name, model)
 
     sample = 0
     for X, y_true in file_mgr.yield_validation(model_name, (x_codec, y_codec)):
